@@ -1,0 +1,45 @@
+# Godot generated files
+/.godot/
+/.mono/
+/android/
+
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+
+# IDE and editor-local files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+*.sln.docstates
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*~
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
