@@ -10,7 +10,8 @@ public partial class SandwichController : Node3D
 
 	private readonly int _sandwichId;
 	private Vector3 _targetPosition;
-	private float _targetTiltRadians;
+	private float _targetPitchRadians;
+	private float _targetRollRadians;
 
 	public bool Completed { get; private set; }
 	public bool AtSummit { get; private set; }
@@ -45,9 +46,9 @@ public partial class SandwichController : Node3D
 
 		Position = Position.Lerp(_targetPosition, positionWeight);
 		Rotation = new Vector3(
-			Rotation.X,
+			Mathf.LerpAngle(Rotation.X, _targetPitchRadians, rotationWeight),
 			Rotation.Y,
-			Mathf.LerpAngle(Rotation.Z, _targetTiltRadians, rotationWeight)
+			Mathf.LerpAngle(Rotation.Z, _targetRollRadians, rotationWeight)
 		);
 	}
 
@@ -60,7 +61,8 @@ public partial class SandwichController : Node3D
 		}
 
 		_targetPosition = sandwich.Position;
-		_targetTiltRadians = Mathf.DegToRad(sandwich.Tilt);
+		_targetPitchRadians = Mathf.DegToRad(sandwich.Pitch);
+		_targetRollRadians = Mathf.DegToRad(sandwich.Roll);
 		Completed = sandwich.Completed;
 		AtSummit = sandwich.AtSummit;
 		AttachedPlayerCount = sandwich.AttachedPlayerCount;

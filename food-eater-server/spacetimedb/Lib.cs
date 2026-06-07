@@ -19,11 +19,26 @@ public static partial class Module
     private const float SandwichCarryHeight = 2.6f;
     private const float GroundedHeightTolerance = 0.05f;
     private const float DefaultSandwichSpeed = 5f;
-    private const float DefaultGravity = 12f;
+    private const float DefaultGravity = 24f;
     private const float DefaultJumpImpulse = 8.5f;
     private const float MaxAirHeightBuffer = 10f;
     private const float JumpLiftInfluence = 0.85f;
     private const float JumpTiltFactor = 18f;
+    private const float MovementPitchTorqueFactor = 42f;
+    private const float MovementRollTorqueFactor = 42f;
+    private const float JumpPitchTorqueFactor = 58f;
+    private const float JumpRollTorqueFactor = 58f;
+    private const float LoadPitchTorqueFactor = 22f;
+    private const float LoadRollTorqueFactor = 22f;
+    private const float AngularReturnSpring = 7.5f;
+    private const float AngularVelocityDamping = 0.86f;
+    private const float AngularImpactKick = 20f;
+    private const float MaxSandwichAngle = 38f;
+    private const float ToppingSlideAccelerationFactor = 0.45f;
+    private const float ToppingAngularAccelerationFactor = 0.09f;
+    private const float ToppingSlideBoundary = 1.1f;
+    private const float ImpactSlideImpulse = 2.8f;
+    private const uint InitialShuffleSeed = 0xA53C9E2Du;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
     public partial struct SimulationTimer
@@ -39,6 +54,23 @@ public static partial class Module
         [PrimaryKey]
         public Identity identity;
         public float vertical_velocity;
+    }
+
+    [Table(Accessor = "sandwich_motion")]
+    public partial struct SandwichMotion
+    {
+        [PrimaryKey]
+        public int sandwich_id;
+        public float pitch_velocity;
+        public float roll_velocity;
+    }
+
+    [Table(Accessor = "run_state")]
+    public partial struct RunState
+    {
+        [PrimaryKey]
+        public int id;
+        public uint shuffle_seed;
     }
 
     [Table(Accessor = "config", Public = true)]
@@ -82,6 +114,8 @@ public static partial class Module
         public DbVector3 position;
         public DbVector3 velocity;
         public float tilt;
+        public float pitch;
+        public float roll;
         public int attached_player_count;
         public bool at_summit;
         public bool completed;
@@ -130,7 +164,18 @@ public static partial class Module
         });
 
         ctx.Db.sandwich.Insert(CreateInitialSandwich(RequireConfig(ctx)));
-        SeedToppings(ctx);
+        ctx.Db.sandwich_motion.Insert(new SandwichMotion
+        {
+            sandwich_id = SandwichId,
+            pitch_velocity = 0f,
+            roll_velocity = 0f,
+        });
+        ctx.Db.run_state.Insert(new RunState
+        {
+            id = 0,
+            shuffle_seed = InitialShuffleSeed,
+        });
+        SeedToppings(ctx, AdvanceShuffleSeed(ctx));
 
         ctx.Db.simulation_timer.Insert(new SimulationTimer
         {
@@ -255,7 +300,7 @@ public static partial class Module
         ctx.Db.topping.topping_id.Update(topping with
         {
             state = ToppingState.Attached,
-            position = sandwich.position + topping.attached_offset,
+            position = sandwich.position + RotateOffset(topping.attached_offset, sandwich),
             velocity = DbVector3.Zero,
         });
         Emit(ctx, "topping_recovered", player.player_id, topping.topping_id, $"{player.name} recovered {topping.name}.");
@@ -277,7 +322,13 @@ public static partial class Module
 
         var config = RequireConfig(ctx);
         ctx.Db.sandwich.id.Update(CreateInitialSandwich(config));
-        SeedToppings(ctx);
+        ctx.Db.sandwich_motion.sandwich_id.Update(new SandwichMotion
+        {
+            sandwich_id = SandwichId,
+            pitch_velocity = 0f,
+            roll_velocity = 0f,
+        });
+        SeedToppings(ctx, AdvanceShuffleSeed(ctx));
 
         foreach (var activePlayer in ctx.Db.player.Iter().ToList())
         {
@@ -302,6 +353,7 @@ public static partial class Module
     {
         var config = RequireConfig(ctx);
         var sandwich = RequireSandwich(ctx);
+        var sandwichMotion = RequireSandwichMotion(ctx);
         var players = ctx.Db.player.Iter().ToList();
         var impacted = false;
         var disagreementTilt = 0f;
@@ -309,6 +361,8 @@ public static partial class Module
         if (!sandwich.completed)
         {
             var previousSandwichY = sandwich.position.y;
+            var jumpPitch = 0f;
+            var jumpRoll = 0f;
             if (players.Count > 0)
             {
                 var averageInput = DbVector3.Zero;
@@ -353,45 +407,85 @@ public static partial class Module
             {
                 var averageJumpOffset = 0f;
                 var averageVerticalVelocity = 0f;
-                var jumpTilt = 0f;
 
                 foreach (var state in playerStates)
                 {
                     averageJumpOffset += state.JumpOffset;
                     averageVerticalVelocity += state.VerticalVelocity;
-                    jumpTilt += state.Player.attachment_offset.x * state.JumpOffset;
+                    jumpPitch += state.Player.attachment_offset.z * state.JumpOffset;
+                    jumpRoll += state.Player.attachment_offset.x * state.JumpOffset;
                 }
 
                 averageJumpOffset /= playerStates.Count;
                 averageVerticalVelocity /= playerStates.Count;
-                jumpTilt = playerStates.Count > 0
-                    ? jumpTilt / (playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f))
-                    : 0f;
+                jumpPitch /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
+                jumpRoll /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
 
                 sandwich.position.y = targetSandwichHeight + averageJumpOffset * JumpLiftInfluence;
                 sandwich.velocity.y = averageVerticalVelocity;
-                sandwich.tilt = Lerp(sandwich.tilt, disagreementTilt + jumpTilt * JumpTiltFactor, 0.2f);
             }
             else
             {
                 impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
                 sandwich.position.y = targetSandwichHeight;
                 sandwich.velocity.y = 0f;
-                sandwich.tilt = Lerp(sandwich.tilt, disagreementTilt, 0.1f);
             }
+
+            var loadCenter = AttachedToppingLoadCenter(ctx);
+            var movementPitchTorque =
+                -sandwich.velocity.z / MathF.Max(config.sandwich_speed, 0.001f) * MovementPitchTorqueFactor;
+            var movementRollTorque =
+                sandwich.velocity.x / MathF.Max(config.sandwich_speed, 0.001f) * MovementRollTorqueFactor;
+            var jumpPitchTorque = -jumpPitch * JumpPitchTorqueFactor;
+            var jumpRollTorque = jumpRoll * JumpRollTorqueFactor;
+            var loadPitchTorque = -loadCenter.z * LoadPitchTorqueFactor;
+            var loadRollTorque = loadCenter.x * LoadRollTorqueFactor;
+
+            sandwichMotion.pitch_velocity += (
+                movementPitchTorque +
+                jumpPitchTorque +
+                loadPitchTorque -
+                sandwich.pitch * AngularReturnSpring
+            ) * TickSeconds;
+            sandwichMotion.roll_velocity += (
+                movementRollTorque +
+                jumpRollTorque +
+                loadRollTorque -
+                sandwich.roll * AngularReturnSpring
+            ) * TickSeconds;
+
+            sandwichMotion.pitch_velocity *= AngularVelocityDamping;
+            sandwichMotion.roll_velocity *= AngularVelocityDamping;
+
+            if (impacted)
+            {
+                sandwichMotion.pitch_velocity += -sandwich.pitch * AngularImpactKick * TickSeconds;
+                sandwichMotion.roll_velocity += -sandwich.roll * AngularImpactKick * TickSeconds;
+            }
+
+            sandwich.pitch = Math.Clamp(
+                sandwich.pitch + sandwichMotion.pitch_velocity * TickSeconds,
+                -MaxSandwichAngle,
+                MaxSandwichAngle
+            );
+            sandwich.roll = Math.Clamp(
+                sandwich.roll + sandwichMotion.roll_velocity * TickSeconds,
+                -MaxSandwichAngle,
+                MaxSandwichAngle
+            );
 
             impacted |=
                 previousSandwichY > targetSandwichHeight + GroundedHeightTolerance &&
                 sandwich.position.y <= targetSandwichHeight + GroundedHeightTolerance &&
                 sandwich.velocity.y < -config.topping_drop_impact_speed;
 
+            sandwich.tilt = MathF.Sqrt(sandwich.pitch * sandwich.pitch + sandwich.roll * sandwich.roll) + disagreementTilt;
             sandwich.attached_player_count = players.Count;
             sandwich.tick++;
 
-            if (impacted || sandwich.tilt >= config.topping_drop_tilt)
+            if (impacted)
             {
-                DropTopTopping(ctx, sandwich);
-                sandwich.tilt *= 0.45f;
+                ApplyImpactToAttachedToppings(ctx);
             }
 
             sandwich.at_summit = false;
@@ -399,7 +493,8 @@ public static partial class Module
         }
 
         ctx.Db.sandwich.id.Update(sandwich);
-        UpdateAttachedToppingPositions(ctx, sandwich);
+        ctx.Db.sandwich_motion.sandwich_id.Update(sandwichMotion);
+        UpdateAttachedToppings(ctx, sandwich, sandwichMotion, config);
         UpdateDroppedToppings(ctx, config);
     }
 
@@ -414,6 +509,12 @@ public static partial class Module
 
     private static PlayerMotion RequirePlayerMotion(ReducerContext ctx, Identity identity)
         => ctx.Db.player_motion.identity.Find(identity) ?? throw new Exception("Player motion not found.");
+
+    private static SandwichMotion RequireSandwichMotion(ReducerContext ctx)
+        => ctx.Db.sandwich_motion.sandwich_id.Find(SandwichId) ?? throw new Exception("Sandwich motion not found.");
+
+    private static RunState RequireRunState(ReducerContext ctx)
+        => ctx.Db.run_state.id.Find(0) ?? throw new Exception("Run state not found.");
 
     private static Sandwich CreateInitialSandwich(Config config)
     {
@@ -430,13 +531,37 @@ public static partial class Module
         };
     }
 
-    private static void SeedToppings(ReducerContext ctx)
+    private static void SeedToppings(ReducerContext ctx, uint shuffleSeed)
     {
-        InsertTopping(ctx, "Bottom Bread", 0, new DbVector3(0f, 0f, 0f), ToppingState.Attached);
-        InsertTopping(ctx, "Lettuce", 1, new DbVector3(0f, 0.35f, 0f), ToppingState.Attached);
-        InsertTopping(ctx, "Tomato", 2, new DbVector3(0f, 0.65f, 0f), ToppingState.Attached);
-        InsertTopping(ctx, "Cheese", 3, new DbVector3(0f, 0.95f, 0f), ToppingState.Attached);
-        InsertTopping(ctx, "Top Bread", 4, new DbVector3(0f, 1.3f, 0f), ToppingState.Attached);
+        var bottomBread = ToppingShapeData.GetProfile("Bottom Bread");
+        InsertTopping(ctx, bottomBread.Name, 0, new DbVector3(0f, 0f, 0f), ToppingState.Attached);
+
+        var fillings = new[]
+        {
+            ToppingShapeData.GetProfile("Lettuce"),
+            ToppingShapeData.GetProfile("Tomato"),
+            ToppingShapeData.GetProfile("Cheese"),
+        };
+        ShuffleFillings(fillings, shuffleSeed);
+
+        var currentTop = bottomBread.Thickness * 0.5f;
+        for (var i = 0; i < fillings.Length; i++)
+        {
+            var profile = fillings[i];
+            var centerY = currentTop + profile.Thickness * 0.5f;
+            InsertTopping(
+                ctx,
+                profile.Name,
+                i + 1,
+                new DbVector3(0f, centerY, 0f),
+                ToppingState.Attached
+            );
+            currentTop += profile.Thickness;
+        }
+
+        var topBread = ToppingShapeData.GetProfile("Top Bread");
+        var topBreadY = currentTop + topBread.Thickness * 0.5f;
+        InsertTopping(ctx, topBread.Name, 4, new DbVector3(0f, topBreadY, 0f), ToppingState.Attached);
     }
 
     private static void InsertTopping(
@@ -460,37 +585,50 @@ public static partial class Module
         });
     }
 
-    private static void DropTopTopping(ReducerContext ctx, Sandwich sandwich)
-    {
-        var topping = ctx.Db.topping.Iter()
-            .Where(row => row.state == ToppingState.Attached && row.layer_order > 0)
-            .OrderByDescending(row => row.layer_order)
-            .FirstOrDefault();
-
-        if (topping.topping_id == 0)
-        {
-            return;
-        }
-
-        ctx.Db.topping.topping_id.Update(topping with
-        {
-            state = ToppingState.Dropped,
-            position = sandwich.position + topping.attached_offset,
-            velocity = sandwich.velocity,
-            drop_count = topping.drop_count + 1,
-        });
-        Emit(ctx, "topping_dropped", 0, topping.topping_id, $"{topping.name} fell off the sandwich.");
-    }
-
-    private static void UpdateAttachedToppingPositions(ReducerContext ctx, Sandwich sandwich)
+    private static void UpdateAttachedToppings(
+        ReducerContext ctx,
+        Sandwich sandwich,
+        SandwichMotion sandwichMotion,
+        Config config
+    )
     {
         foreach (var topping in ctx.Db.topping.Iter().Where(row =>
             row.state is ToppingState.Attached or ToppingState.Placed
         ).ToList())
         {
+            if (topping.layer_order == 0)
+            {
+                ctx.Db.topping.topping_id.Update(topping with
+                {
+                    position = sandwich.position + RotateOffset(topping.attached_offset, sandwich),
+                    velocity = DbVector3.Zero,
+                });
+                continue;
+            }
+
+            var profile = ToppingShapeData.GetProfile(topping.name);
+            var localVelocity = topping.velocity;
+            var localOffset = topping.attached_offset;
+            var slideAcceleration = LocalSlideAcceleration(sandwich, sandwichMotion, localOffset, config, profile);
+            localVelocity.x = (localVelocity.x + slideAcceleration.x * TickSeconds) * profile.Friction;
+            localVelocity.z = (localVelocity.z + slideAcceleration.z * TickSeconds) * profile.Friction;
+            localVelocity.y = 0f;
+
+            localOffset.x += localVelocity.x * TickSeconds;
+            localOffset.z += localVelocity.z * TickSeconds;
+
+            var boundary = MathF.Max(ToppingSlideBoundary, profile.SlideBoundary);
+            if (MathF.Abs(localOffset.x) > boundary || MathF.Abs(localOffset.z) > boundary)
+            {
+                DropAttachedTopping(ctx, sandwich, topping, localOffset, localVelocity);
+                continue;
+            }
+
             ctx.Db.topping.topping_id.Update(topping with
             {
-                position = sandwich.position + topping.attached_offset,
+                attached_offset = localOffset,
+                position = sandwich.position + RotateOffset(localOffset, sandwich),
+                velocity = localVelocity,
             });
         }
     }
@@ -515,6 +653,34 @@ public static partial class Module
             {
                 position = position,
                 velocity = velocity,
+            });
+        }
+    }
+
+    private static void ApplyImpactToAttachedToppings(ReducerContext ctx)
+    {
+        foreach (var topping in ctx.Db.topping.Iter()
+            .Where(row => row.state == ToppingState.Attached && row.layer_order > 0)
+            .ToList())
+        {
+            var profile = ToppingShapeData.GetProfile(topping.name);
+            var localVelocity = topping.velocity;
+            var directionX = topping.attached_offset.x;
+            var directionZ = topping.attached_offset.z;
+            var directionLength = MathF.Sqrt(directionX * directionX + directionZ * directionZ);
+            if (directionLength < 0.001f)
+            {
+                directionX = (topping.layer_order % 2 == 0) ? 1f : -1f;
+                directionZ = topping.layer_order >= 3 ? 1f : -1f;
+                directionLength = MathF.Sqrt(directionX * directionX + directionZ * directionZ);
+            }
+
+            localVelocity.x += directionX / directionLength * (ImpactSlideImpulse / profile.Mass);
+            localVelocity.z += directionZ / directionLength * (ImpactSlideImpulse / profile.Mass);
+
+            ctx.Db.topping.topping_id.Update(topping with
+            {
+                velocity = localVelocity,
             });
         }
     }
@@ -612,6 +778,112 @@ public static partial class Module
     private static float TerrainHeight(DbVector3 position, Config config)
         => TerrainHeightData.SampleHeight(position.x, position.z);
 
+    private static DbVector3 LocalSlideAcceleration(
+        Sandwich sandwich,
+        SandwichMotion sandwichMotion,
+        DbVector3 localOffset,
+        Config config,
+        ToppingShapeProfile profile
+    )
+    {
+        var pitchRadians = DegreesToRadians(sandwich.pitch);
+        var rollRadians = DegreesToRadians(sandwich.roll);
+        var angularPitchAccel = DegreesToRadians(sandwichMotion.pitch_velocity) * (localOffset.y + 0.2f);
+        var angularRollAccel = DegreesToRadians(sandwichMotion.roll_velocity) * (localOffset.y + 0.2f);
+        return new DbVector3(
+            (
+                MathF.Sin(rollRadians) * config.gravity * ToppingSlideAccelerationFactor +
+                angularRollAccel * ToppingAngularAccelerationFactor
+            ) / profile.Mass,
+            0f,
+            (
+                -MathF.Sin(pitchRadians) * config.gravity * ToppingSlideAccelerationFactor -
+                angularPitchAccel * ToppingAngularAccelerationFactor
+            ) / profile.Mass
+        );
+    }
+
+    private static DbVector3 AttachedToppingLoadCenter(ReducerContext ctx)
+    {
+        var totalMass = 0f;
+        var weightedX = 0f;
+        var weightedZ = 0f;
+
+        foreach (var topping in ctx.Db.topping.Iter().Where(row => row.state == ToppingState.Attached && row.layer_order > 0))
+        {
+            var profile = ToppingShapeData.GetProfile(topping.name);
+            totalMass += profile.Mass;
+            weightedX += topping.attached_offset.x * profile.Mass;
+            weightedZ += topping.attached_offset.z * profile.Mass;
+        }
+
+        if (totalMass <= 0.0001f)
+        {
+            return DbVector3.Zero;
+        }
+
+        return new DbVector3(weightedX / totalMass, 0f, weightedZ / totalMass);
+    }
+
+    private static uint AdvanceShuffleSeed(ReducerContext ctx)
+    {
+        var runState = RequireRunState(ctx);
+        var nextSeed = unchecked(runState.shuffle_seed * 1664525u + 1013904223u);
+        ctx.Db.run_state.id.Update(runState with { shuffle_seed = nextSeed });
+        return nextSeed;
+    }
+
+    private static void ShuffleFillings(ToppingShapeProfile[] profiles, uint seed)
+    {
+        for (var i = profiles.Length - 1; i > 0; i--)
+        {
+            seed = unchecked(seed * 1664525u + 1013904223u);
+            var swapIndex = (int)(seed % (uint)(i + 1));
+            (profiles[i], profiles[swapIndex]) = (profiles[swapIndex], profiles[i]);
+        }
+    }
+
+    private static DbVector3 RotateOffset(DbVector3 offset, Sandwich sandwich)
+    {
+        var pitchRadians = DegreesToRadians(sandwich.pitch);
+        var rollRadians = DegreesToRadians(sandwich.roll);
+
+        var cosPitch = MathF.Cos(pitchRadians);
+        var sinPitch = MathF.Sin(pitchRadians);
+        var cosRoll = MathF.Cos(rollRadians);
+        var sinRoll = MathF.Sin(rollRadians);
+
+        var pitchedY = offset.y * cosPitch - offset.z * sinPitch;
+        var pitchedZ = offset.y * sinPitch + offset.z * cosPitch;
+
+        var rolledX = offset.x * cosRoll - pitchedY * sinRoll;
+        var rolledY = offset.x * sinRoll + pitchedY * cosRoll;
+
+        return new DbVector3(rolledX, rolledY, pitchedZ);
+    }
+
+    private static void DropAttachedTopping(
+        ReducerContext ctx,
+        Sandwich sandwich,
+        Topping topping,
+        DbVector3 localOffset,
+        DbVector3 localVelocity
+    )
+    {
+        var worldOffset = RotateOffset(localOffset, sandwich);
+        var worldSlideVelocity = RotateOffset(localVelocity, sandwich);
+
+        ctx.Db.topping.topping_id.Update(topping with
+        {
+            state = ToppingState.Dropped,
+            attached_offset = localOffset,
+            position = sandwich.position + worldOffset,
+            velocity = sandwich.velocity + worldSlideVelocity,
+            drop_count = topping.drop_count + 1,
+        });
+        Emit(ctx, "topping_dropped", 0, topping.topping_id, $"{topping.name} slid off the sandwich.");
+    }
+
     private static DbVector3 ResolvePlayerPosition(
         Sandwich sandwich,
         DbVector3 attachmentOffset,
@@ -631,6 +903,8 @@ public static partial class Module
     }
 
     private readonly record struct SimulatedPlayerState(Player Player, float JumpOffset, float VerticalVelocity);
+
+    private static float DegreesToRadians(float degrees) => degrees * (MathF.PI / 180f);
 
     private static void Emit(
         ReducerContext ctx,
