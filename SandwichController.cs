@@ -30,14 +30,6 @@ public partial class SandwichController : Node3D
 	{
 		Name = $"Sandwich - {_sandwichId}";
 		AddToGroup(GroupName);
-
-		var mesh = new MeshInstance3D
-		{
-			Name = "PlaceholderMesh",
-			Mesh = new BoxMesh { Size = new Vector3(3f, 0.35f, 3f) },
-			MaterialOverride = new StandardMaterial3D { AlbedoColor = Colors.SaddleBrown },
-		};
-		AddChild(mesh);
 	}
 
 	public override void _Process(double delta)

@@ -15,12 +15,14 @@ public static partial class Module
 {
     private const float TickSeconds = 0.05f;
     private const int SandwichId = 0;
+    private const float PitfallFloorY = -40f;
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
+    private const float PlayerHeadSupportHeight = 1.45f;
     private const float GroundedHeightTolerance = 0.05f;
-    private const float DefaultSandwichSpeed = 5f;
+    private const float DefaultSandwichSpeed = 18f;
     private const float DefaultGravity = 24f;
-    private const float DefaultJumpImpulse = 8.5f;
+    private const float DefaultJumpImpulse = 12.75f;
     private const float MaxAirHeightBuffer = 10f;
     private const float JumpLiftInfluence = 0.85f;
     private const float JumpTiltFactor = 18f;
@@ -28,6 +30,8 @@ public static partial class Module
     private const float MovementRollTorqueFactor = 42f;
     private const float JumpPitchTorqueFactor = 58f;
     private const float JumpRollTorqueFactor = 58f;
+    private const float SupportPitchTorqueFactor = 44f;
+    private const float SupportRollTorqueFactor = 44f;
     private const float LoadPitchTorqueFactor = 22f;
     private const float LoadRollTorqueFactor = 22f;
     private const float AngularReturnSpring = 7.5f;
@@ -38,6 +42,8 @@ public static partial class Module
     private const float ToppingAngularAccelerationFactor = 0.09f;
     private const float ToppingSlideBoundary = 1.1f;
     private const float ImpactSlideImpulse = 2.8f;
+    private const float ToppingMomentumRetentionPerSecond = 0.35f;
+    private const float ToppingMomentumStopSpeed = 0.08f;
     private const float PlayerOrbitRotationSpeed = 95f;
     private const uint InitialShuffleSeed = 0xA53C9E2Du;
 
@@ -357,15 +363,20 @@ public static partial class Module
         var players = ctx.Db.player.Iter().ToList();
         var impacted = false;
         var disagreementTilt = 0f;
+        var bridgeTargetRoll = 0f;
+        var applyBridgeTargetRoll = false;
 
         if (!sandwich.completed)
         {
             var previousSandwichY = sandwich.position.y;
+            var previousSandwichHorizontalPosition = new DbVector3(sandwich.position.x, 0f, sandwich.position.z);
             var jumpPitch = 0f;
             var jumpRoll = 0f;
+            var supportPitch = 0f;
+            var supportRoll = 0f;
             if (players.Count > 0)
             {
-                var averageTranslationInput = DbVector3.Zero;
+                var averageInput = DbVector3.Zero;
                 var averageOrbitInput = 0f;
                 foreach (var player in players)
                 {
@@ -374,27 +385,20 @@ public static partial class Module
                     var tangent = TangentFromOffset(flatOffset);
                     var orbitInput = DotFlat(horizontalInput, tangent);
                     averageOrbitInput += orbitInput;
-                    averageTranslationInput += horizontalInput;
+                    averageInput += horizontalInput;
                 }
-                averageTranslationInput /= players.Count;
+                averageInput /= players.Count;
                 averageOrbitInput /= players.Count;
 
                 var disagreement = 0f;
                 foreach (var player in players)
                 {
-                    disagreement += DbVector3.Distance(player.input_direction, averageTranslationInput);
+                    disagreement += DbVector3.Distance(player.input_direction, averageInput);
                 }
                 disagreement /= players.Count;
 
-                var targetVelocity = ClampMagnitude(averageTranslationInput, 1f) * config.sandwich_speed;
-                sandwich.velocity = DbVector3.Lerp(
-                    new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z),
-                    targetVelocity,
-                    0.35f
-                );
                 disagreementTilt = disagreement * 45f;
 
-                sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
                 if (MathF.Abs(averageOrbitInput) > 0.001f)
                 {
                     sandwich.yaw = NormalizeDegrees(sandwich.yaw + averageOrbitInput * PlayerOrbitRotationSpeed * TickSeconds);
@@ -411,36 +415,91 @@ public static partial class Module
                 sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             }
 
-            sandwich.position = ClampToTerrainBounds(sandwich.position, config);
-            var playerStates = SimulatePlayers(ctx, players, sandwich, config);
-            var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
+            var playerStates = SimulatePlayers(ctx, players, config);
+            if (playerStates.Count > 0)
+            {
+                playerStates = ApplyCarryConstraint(ctx, playerStates, sandwich, config);
+                var nextSandwichHorizontalPosition = ResolveSandwichHorizontalPosition(playerStates, sandwich, config);
+                sandwich.position.x = nextSandwichHorizontalPosition.x;
+                sandwich.position.z = nextSandwichHorizontalPosition.z;
+                sandwich.velocity.x = (sandwich.position.x - previousSandwichHorizontalPosition.x) / TickSeconds;
+                sandwich.velocity.z = (sandwich.position.z - previousSandwichHorizontalPosition.z) / TickSeconds;
+                playerStates = AlignPlayerAttachmentOffsets(ctx, playerStates, sandwich);
+            }
+            else
+            {
+                sandwich.position = ClampToTerrainBounds(sandwich.position, config);
+            }
+
+            var hasSandwichGround = TryTerrainHeight(sandwich.position, out var sandwichGroundHeight);
+            var targetSandwichHeight = (hasSandwichGround ? sandwichGroundHeight : PitfallFloorY) + SandwichCarryHeight;
 
             if (playerStates.Count > 0)
             {
-                var averageJumpOffset = 0f;
                 var averageVerticalVelocity = 0f;
+                var averagePlayerHeight = 0f;
+                var averageSupportHeight = 0f;
+                var bottomBread = ToppingShapeData.GetProfile("BottomBread");
 
                 foreach (var state in playerStates)
                 {
-                    averageJumpOffset += state.JumpOffset;
                     averageVerticalVelocity += state.VerticalVelocity;
-                    jumpPitch += state.Player.attachment_offset.z * state.JumpOffset;
-                    jumpRoll += state.Player.attachment_offset.x * state.JumpOffset;
+                    averagePlayerHeight += state.Player.position.y;
+                    averageSupportHeight += GetPlayerHeadSupportPoint(state.Player).y;
                 }
 
-                averageJumpOffset /= playerStates.Count;
                 averageVerticalVelocity /= playerStates.Count;
+                averagePlayerHeight /= playerStates.Count;
+                averageSupportHeight /= playerStates.Count;
+
+                if (playerStates.Count == 2)
+                {
+                    var firstHead = GetPlayerHeadSupportPoint(playerStates[0].Player);
+                    var secondHead = GetPlayerHeadSupportPoint(playerStates[1].Player);
+                    var headDelta = secondHead - firstHead;
+                    var flatHeadDelta = new DbVector3(headDelta.x, 0f, headDelta.z);
+                    if (flatHeadDelta.Magnitude > 0.001f)
+                    {
+                        sandwich.yaw = YawFromFlatVector(flatHeadDelta);
+                        bridgeTargetRoll = Math.Clamp(
+                            RadiansToDegrees(MathF.Atan2(secondHead.y - firstHead.y, flatHeadDelta.Magnitude)),
+                            -MaxSandwichAngle,
+                            MaxSandwichAngle
+                        );
+                        applyBridgeTargetRoll = true;
+                    }
+                }
+
+                foreach (var state in playerStates)
+                {
+                    var supportDelta = GetPlayerHeadSupportPoint(state.Player).y - averageSupportHeight;
+                    jumpPitch += state.Player.attachment_offset.z * state.JumpOffset;
+                    jumpRoll += state.Player.attachment_offset.x * state.JumpOffset;
+                    supportPitch += state.Player.attachment_offset.z * supportDelta;
+                    supportRoll += state.Player.attachment_offset.x * supportDelta;
+                }
+
                 jumpPitch /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
                 jumpRoll /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
+                supportPitch /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
+                supportRoll /= playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f);
 
-                sandwich.position.y = targetSandwichHeight + averageJumpOffset * JumpLiftInfluence;
+                sandwich.position.y = averageSupportHeight - bottomBread.MinY;
                 sandwich.velocity.y = averageVerticalVelocity;
             }
             else
             {
-                impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
-                sandwich.position.y = targetSandwichHeight;
-                sandwich.velocity.y = 0f;
+                if (hasSandwichGround)
+                {
+                    impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
+                    sandwich.position.y = targetSandwichHeight;
+                    sandwich.velocity.y = 0f;
+                }
+                else
+                {
+                    sandwich.velocity.y -= config.gravity * TickSeconds;
+                    sandwich.position.y = MathF.Max(PitfallFloorY + SandwichCarryHeight, sandwich.position.y + sandwich.velocity.y * TickSeconds);
+                }
             }
 
             var loadCenter = AttachedToppingLoadCenter(ctx);
@@ -451,18 +510,22 @@ public static partial class Module
                 localVelocity.x / MathF.Max(config.sandwich_speed, 0.001f) * MovementRollTorqueFactor;
             var jumpPitchTorque = -jumpPitch * JumpPitchTorqueFactor;
             var jumpRollTorque = jumpRoll * JumpRollTorqueFactor;
+            var supportPitchTorque = -supportPitch * SupportPitchTorqueFactor;
+            var supportRollTorque = supportRoll * SupportRollTorqueFactor;
             var loadPitchTorque = -loadCenter.z * LoadPitchTorqueFactor;
             var loadRollTorque = loadCenter.x * LoadRollTorqueFactor;
 
             sandwichMotion.pitch_velocity += (
                 movementPitchTorque +
                 jumpPitchTorque +
+                supportPitchTorque +
                 loadPitchTorque -
                 sandwich.pitch * AngularReturnSpring
             ) * TickSeconds;
             sandwichMotion.roll_velocity += (
                 movementRollTorque +
                 jumpRollTorque +
+                supportRollTorque +
                 loadRollTorque -
                 sandwich.roll * AngularReturnSpring
             ) * TickSeconds;
@@ -487,6 +550,12 @@ public static partial class Module
                 MaxSandwichAngle
             );
 
+            if (applyBridgeTargetRoll)
+            {
+                sandwich.roll = Lerp(sandwich.roll, bridgeTargetRoll, 0.7f);
+                sandwichMotion.roll_velocity = Lerp(sandwichMotion.roll_velocity, 0f, 0.45f);
+            }
+
             impacted |=
                 previousSandwichY > targetSandwichHeight + GroundedHeightTolerance &&
                 sandwich.position.y <= targetSandwichHeight + GroundedHeightTolerance &&
@@ -502,13 +571,19 @@ public static partial class Module
             }
 
             sandwich.at_summit = false;
-            sandwich.completed = false;
+        }
+
+        UpdateAttachedToppings(ctx, sandwich, sandwichMotion, config);
+        UpdateDroppedToppings(ctx, config);
+
+        if (!sandwich.completed && HaveAllCarriedToppingsFallen(ctx))
+        {
+            sandwich.completed = true;
+            Emit(ctx, "game_over", 0, 0, "Game over: all toppings fell off.");
         }
 
         ctx.Db.sandwich.id.Update(sandwich);
         ctx.Db.sandwich_motion.sandwich_id.Update(sandwichMotion);
-        UpdateAttachedToppings(ctx, sandwich, sandwichMotion, config);
-        UpdateDroppedToppings(ctx, config);
     }
 
     private static Config RequireConfig(ReducerContext ctx)
@@ -532,12 +607,13 @@ public static partial class Module
     private static Sandwich CreateInitialSandwich(Config config)
     {
         var horizontalPosition = new DbVector3(TerrainHeightData.CenterX, 0f, TerrainHeightData.CenterZ);
+        var bottomBread = ToppingShapeData.GetProfile("BottomBread");
         return new Sandwich
         {
             id = SandwichId,
             position = horizontalPosition + new DbVector3(
                 0f,
-                TerrainHeight(horizontalPosition, config) + SandwichCarryHeight,
+                TerrainHeight(horizontalPosition, config) + PlayerHeadSupportHeight - bottomBread.MinY,
                 0f
             ),
             velocity = DbVector3.Zero,
@@ -547,35 +623,61 @@ public static partial class Module
 
     private static void SeedToppings(ReducerContext ctx, uint shuffleSeed)
     {
-        var bottomBread = ToppingShapeData.GetProfile("Bottom Bread");
-        InsertTopping(ctx, bottomBread.Name, 0, new DbVector3(0f, 0f, 0f), ToppingState.Attached);
+        var bottomBread = ToppingShapeData.GetProfile("BottomBread");
+        var currentTop = 0f;
+        var bottomBreadY = currentTop - bottomBread.MinY;
+        InsertTopping(ctx, bottomBread.Name, 0, new DbVector3(0f, bottomBreadY, 0f), ToppingState.Attached);
+        currentTop = bottomBreadY + bottomBread.MaxY;
 
-        var fillings = new[]
+        var layers = new[]
         {
             ToppingShapeData.GetProfile("Lettuce"),
             ToppingShapeData.GetProfile("Tomato"),
             ToppingShapeData.GetProfile("Cheese"),
+            ToppingShapeData.GetProfile("Bacon"),
         };
-        ShuffleFillings(fillings, shuffleSeed);
+        ShuffleFillings(layers, shuffleSeed);
 
-        var currentTop = bottomBread.Thickness * 0.5f;
-        for (var i = 0; i < fillings.Length; i++)
+        for (var i = 0; i < layers.Length; i++)
         {
-            var profile = fillings[i];
-            var centerY = currentTop + profile.Thickness * 0.5f;
-            InsertTopping(
-                ctx,
-                profile.Name,
-                i + 1,
-                new DbVector3(0f, centerY, 0f),
-                ToppingState.Attached
-            );
-            currentTop += profile.Thickness;
+            var profile = layers[i];
+            var layerRootY = currentTop - profile.MinY;
+            if (string.Equals(profile.Name, "Tomato", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var tomatoOffset in TomatoLayerOffsets(profile, layerRootY))
+                {
+                    InsertTopping(ctx, profile.Name, i + 1, tomatoOffset, ToppingState.Attached);
+                }
+            }
+            else
+            {
+                InsertTopping(
+                    ctx,
+                    profile.Name,
+                    i + 1,
+                    new DbVector3(0f, layerRootY, 0f),
+                    ToppingState.Attached
+                );
+            }
+
+            currentTop = layerRootY + profile.MaxY;
         }
 
-        var topBread = ToppingShapeData.GetProfile("Top Bread");
-        var topBreadY = currentTop + topBread.Thickness * 0.5f;
-        InsertTopping(ctx, topBread.Name, 4, new DbVector3(0f, topBreadY, 0f), ToppingState.Attached);
+        var topBread = ToppingShapeData.GetProfile("TopBread");
+        var topBreadY = currentTop - topBread.MinY;
+        InsertTopping(ctx, topBread.Name, layers.Length + 1, new DbVector3(0f, topBreadY, 0f), ToppingState.Attached);
+    }
+
+    private static DbVector3[] TomatoLayerOffsets(ToppingShapeProfile profile, float rootY)
+    {
+        var spreadX = MathF.Max(0.22f, profile.HalfWidth * 0.38f);
+        var spreadZ = MathF.Max(0.18f, profile.HalfDepth * 0.28f);
+        return
+        [
+            new DbVector3(-spreadX, rootY, -spreadZ),
+            new DbVector3(spreadX, rootY, -spreadZ),
+            new DbVector3(0f, rootY, spreadZ)
+        ];
     }
 
     private static void InsertTopping(
@@ -624,9 +726,10 @@ public static partial class Module
             var localVelocity = topping.velocity;
             var localOffset = topping.attached_offset;
             var slideAcceleration = LocalSlideAcceleration(sandwich, sandwichMotion, localOffset, config, profile);
-            localVelocity.x = (localVelocity.x + slideAcceleration.x * TickSeconds) * profile.Friction;
-            localVelocity.z = (localVelocity.z + slideAcceleration.z * TickSeconds) * profile.Friction;
+            localVelocity.x += slideAcceleration.x * TickSeconds;
+            localVelocity.z += slideAcceleration.z * TickSeconds;
             localVelocity.y = 0f;
+            localVelocity = ApplyToppingMomentum(localVelocity);
 
             localOffset.x += localVelocity.x * TickSeconds;
             localOffset.z += localVelocity.z * TickSeconds;
@@ -655,8 +758,7 @@ public static partial class Module
             velocity.y -= config.gravity * TickSeconds;
 
             var position = topping.position + velocity * TickSeconds;
-            var terrainHeight = TerrainHeight(position, config);
-            if (position.y <= terrainHeight)
+            if (TryTerrainHeight(position, out var terrainHeight) && position.y <= terrainHeight)
             {
                 position.y = terrainHeight;
                 velocity = DbVector3.Zero;
@@ -702,7 +804,6 @@ public static partial class Module
     private static System.Collections.Generic.List<SimulatedPlayerState> SimulatePlayers(
         ReducerContext ctx,
         System.Collections.Generic.List<Player> players,
-        Sandwich sandwich,
         Config config
     )
     {
@@ -710,37 +811,38 @@ public static partial class Module
         foreach (var player in players)
         {
             var motion = RequirePlayerMotion(ctx, player.identity);
-            var rotatedAttachmentOffset = RotateFlat(player.attachment_offset, sandwich.yaw);
-            var nextHorizontalPosition = new DbVector3(
-                sandwich.position.x + rotatedAttachmentOffset.x,
-                0f,
-                sandwich.position.z + rotatedAttachmentOffset.z
+            var horizontalInput = ClampMagnitude(
+                new DbVector3(player.input_direction.x, 0f, player.input_direction.z),
+                1f
             );
+            var nextHorizontalPosition = new DbVector3(
+                player.position.x,
+                0f,
+                player.position.z
+            ) + horizontalInput * config.sandwich_speed * TickSeconds;
             nextHorizontalPosition = ClampToTerrainBounds(nextHorizontalPosition, config);
 
-            var currentGroundHeight = TerrainHeight(player.position, config);
-            var jumpOffset = MathF.Max(0f, player.position.y - currentGroundHeight);
+            var hasCurrentGround = TryTerrainHeight(player.position, out var currentGroundHeight);
+            var grounded = hasCurrentGround && player.position.y <= currentGroundHeight + GroundedHeightTolerance;
             var verticalVelocity = motion.vertical_velocity;
 
-            if (player.jump_queued && jumpOffset <= GroundedHeightTolerance)
+            if (player.jump_queued && grounded)
             {
                 verticalVelocity = config.jump_impulse;
             }
 
             verticalVelocity -= config.gravity * TickSeconds;
-            jumpOffset += verticalVelocity * TickSeconds;
-            if (jumpOffset <= 0f)
+            var nextY = player.position.y + verticalVelocity * TickSeconds;
+            var hasNextGround = TryTerrainHeight(nextHorizontalPosition, out var nextGroundHeight);
+            if (hasNextGround && nextY <= nextGroundHeight)
             {
-                jumpOffset = 0f;
+                nextY = nextGroundHeight;
                 verticalVelocity = 0f;
             }
 
-            var nextGroundHeight = TerrainHeight(nextHorizontalPosition, config);
-            var nextPosition = new DbVector3(
-                nextHorizontalPosition.x,
-                nextGroundHeight + jumpOffset,
-                nextHorizontalPosition.z
-            );
+            nextY = MathF.Max(PitfallFloorY, nextY);
+            var jumpOffset = hasNextGround ? MathF.Max(0f, nextY - nextGroundHeight) : 0f;
+            var nextPosition = new DbVector3(nextHorizontalPosition.x, nextY, nextHorizontalPosition.z);
 
             var updatedPlayer = player with
             {
@@ -759,6 +861,178 @@ public static partial class Module
 
         return states;
     }
+
+    private static DbVector3 ResolveSandwichHorizontalPosition(
+        System.Collections.Generic.List<SimulatedPlayerState> playerStates,
+        Sandwich sandwich,
+        Config config
+    )
+    {
+        var accumulatedCenter = DbVector3.Zero;
+        foreach (var state in playerStates)
+        {
+            var rotatedAttachmentOffset = RotateFlat(state.Player.attachment_offset, sandwich.yaw);
+            accumulatedCenter += new DbVector3(
+                state.Player.position.x - rotatedAttachmentOffset.x,
+                0f,
+                state.Player.position.z - rotatedAttachmentOffset.z
+            );
+        }
+
+        var horizontalPosition = accumulatedCenter / playerStates.Count;
+        return ClampToTerrainBounds(horizontalPosition, config);
+    }
+
+    private static System.Collections.Generic.List<SimulatedPlayerState> ApplyCarryConstraint(
+        ReducerContext ctx,
+        System.Collections.Generic.List<SimulatedPlayerState> playerStates,
+        Sandwich sandwich,
+        Config config
+    )
+    {
+        if (playerStates.Count == 0)
+        {
+            return playerStates;
+        }
+
+        var constrainedStates = new System.Collections.Generic.List<SimulatedPlayerState>(playerStates.Count);
+        var provisionalCenter = ResolveCarryConstraintCenter(playerStates, sandwich, config);
+
+        foreach (var state in playerStates)
+        {
+            var currentHorizontalPosition = new DbVector3(
+                state.Player.position.x,
+                0f,
+                state.Player.position.z
+            );
+            var rawOffset = currentHorizontalPosition - provisionalCenter;
+            var supportOffset = ResolveCarrySupportOffset(rawOffset, state.Player.attachment_offset, sandwich.yaw);
+            var constrainedHorizontalPosition = ClampToTerrainBounds(
+                provisionalCenter + supportOffset,
+                config
+            );
+
+            var nextY = state.Player.position.y;
+            var verticalVelocity = state.VerticalVelocity;
+            var hasGround = TryTerrainHeight(constrainedHorizontalPosition, out var groundHeight);
+            if (hasGround && nextY <= groundHeight)
+            {
+                nextY = groundHeight;
+                verticalVelocity = 0f;
+            }
+
+            nextY = MathF.Max(PitfallFloorY, nextY);
+            var jumpOffset = hasGround ? MathF.Max(0f, nextY - groundHeight) : 0f;
+            var updatedAttachmentOffset = NormalizeAttachmentOffset(
+                InverseRotateFlat(supportOffset, sandwich.yaw)
+            );
+            var updatedPlayer = state.Player with
+            {
+                position = new DbVector3(
+                    constrainedHorizontalPosition.x,
+                    nextY,
+                    constrainedHorizontalPosition.z
+                ),
+                attachment_offset = updatedAttachmentOffset,
+            };
+
+            ctx.Db.player.identity.Update(updatedPlayer);
+            ctx.Db.player_motion.identity.Update(RequirePlayerMotion(ctx, updatedPlayer.identity) with
+            {
+                vertical_velocity = verticalVelocity,
+            });
+            constrainedStates.Add(new SimulatedPlayerState(updatedPlayer, jumpOffset, verticalVelocity));
+        }
+
+        return constrainedStates;
+    }
+
+    private static System.Collections.Generic.List<SimulatedPlayerState> AlignPlayerAttachmentOffsets(
+        ReducerContext ctx,
+        System.Collections.Generic.List<SimulatedPlayerState> playerStates,
+        Sandwich sandwich
+    )
+    {
+        var alignedStates = new System.Collections.Generic.List<SimulatedPlayerState>(playerStates.Count);
+        foreach (var state in playerStates)
+        {
+            var worldOffset = new DbVector3(
+                state.Player.position.x - sandwich.position.x,
+                0f,
+                state.Player.position.z - sandwich.position.z
+            );
+            var localOffset = InverseRotateFlat(worldOffset, sandwich.yaw);
+            var normalizedOffset = NormalizeAttachmentOffset(localOffset);
+            var updatedPlayer = state.Player with
+            {
+                attachment_offset = normalizedOffset,
+            };
+
+            ctx.Db.player.identity.Update(updatedPlayer);
+            alignedStates.Add(new SimulatedPlayerState(updatedPlayer, state.JumpOffset, state.VerticalVelocity));
+        }
+
+        return alignedStates;
+    }
+
+    private static DbVector3 ResolveCarryConstraintCenter(
+        System.Collections.Generic.List<SimulatedPlayerState> playerStates,
+        Sandwich sandwich,
+        Config config
+    )
+    {
+        if (playerStates.Count == 1)
+        {
+            var supportOffset = RotateFlat(playerStates[0].Player.attachment_offset, sandwich.yaw);
+            return ClampToTerrainBounds(
+                new DbVector3(
+                    playerStates[0].Player.position.x - supportOffset.x,
+                    0f,
+                    playerStates[0].Player.position.z - supportOffset.z
+                ),
+                config
+            );
+        }
+
+        var accumulatedCenter = DbVector3.Zero;
+        foreach (var state in playerStates)
+        {
+            accumulatedCenter += new DbVector3(
+                state.Player.position.x,
+                0f,
+                state.Player.position.z
+            );
+        }
+
+        return ClampToTerrainBounds(accumulatedCenter / playerStates.Count, config);
+    }
+
+    private static DbVector3 ResolveCarrySupportOffset(
+        DbVector3 rawOffset,
+        DbVector3 attachmentOffset,
+        float sandwichYaw
+    )
+    {
+        var flatOffset = new DbVector3(rawOffset.x, 0f, rawOffset.z);
+        if (flatOffset.Magnitude > 0.0001f)
+        {
+            return NormalizeAttachmentOffset(flatOffset);
+        }
+
+        var fallbackOffset = RotateFlat(attachmentOffset, sandwichYaw);
+        if (new DbVector3(fallbackOffset.x, 0f, fallbackOffset.z).Magnitude > 0.0001f)
+        {
+            return NormalizeAttachmentOffset(fallbackOffset);
+        }
+
+        return new DbVector3(PlayerCarryRadius, 0f, 0f);
+    }
+
+    private static bool HaveAllCarriedToppingsFallen(ReducerContext ctx)
+        => !ctx.Db.topping.Iter().Any(row =>
+            row.layer_order > 0 &&
+            (row.state == ToppingState.Attached || row.state == ToppingState.Placed)
+        );
 
     private static DbVector3 AttachmentOffset(int index)
     {
@@ -858,12 +1132,15 @@ public static partial class Module
         position.x = Math.Clamp(position.x, TerrainHeightData.MinX, TerrainHeightData.MaxX);
         position.z = Math.Clamp(position.z, TerrainHeightData.MinZ, TerrainHeightData.MaxZ);
 
-        position.y = Math.Clamp(position.y, 0f, config.summit_height + SandwichCarryHeight + MaxAirHeightBuffer);
+        position.y = Math.Clamp(position.y, PitfallFloorY, config.summit_height + SandwichCarryHeight + MaxAirHeightBuffer);
         return position;
     }
 
     private static float TerrainHeight(DbVector3 position, Config config)
         => TerrainHeightData.SampleHeight(position.x, position.z);
+
+    private static bool TryTerrainHeight(DbVector3 position, out float height)
+        => TerrainHeightData.TrySampleHeight(position.x, position.z, out height);
 
     private static DbVector3 LocalSlideAcceleration(
         Sandwich sandwich,
@@ -888,6 +1165,26 @@ public static partial class Module
                 angularPitchAccel * ToppingAngularAccelerationFactor
             ) / profile.Mass
         );
+    }
+
+    private static DbVector3 ApplyToppingMomentum(DbVector3 velocity)
+    {
+        var retainedHorizontalVelocity = RetainMomentum(velocity.x, velocity.z);
+        return new DbVector3(retainedHorizontalVelocity.x, 0f, retainedHorizontalVelocity.z);
+    }
+
+    private static DbVector3 RetainMomentum(float x, float z)
+    {
+        var retention = MathF.Pow(ToppingMomentumRetentionPerSecond, TickSeconds);
+        var retainedX = x * retention;
+        var retainedZ = z * retention;
+        var retainedSpeed = MathF.Sqrt(retainedX * retainedX + retainedZ * retainedZ);
+        if (retainedSpeed < ToppingMomentumStopSpeed)
+        {
+            return DbVector3.Zero;
+        }
+
+        return new DbVector3(retainedX, 0f, retainedZ);
     }
 
     private static DbVector3 AttachedToppingLoadCenter(ReducerContext ctx)
@@ -989,9 +1286,11 @@ public static partial class Module
             sandwich.position.z + rotatedOffset.z
         );
         horizontalPosition = ClampToTerrainBounds(horizontalPosition, config);
-        var sandwichGroundHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
-        var airborneOffset = MathF.Max(0f, sandwich.position.y - sandwichGroundHeight);
-        horizontalPosition.y = TerrainHeight(horizontalPosition, config) + airborneOffset;
+        var bottomBread = ToppingShapeData.GetProfile("BottomBread");
+        var carriedFootHeight = sandwich.position.y + bottomBread.MinY - PlayerHeadSupportHeight;
+        horizontalPosition.y = TryTerrainHeight(horizontalPosition, out var playerGroundHeight)
+            ? MathF.Max(playerGroundHeight, carriedFootHeight)
+            : carriedFootHeight;
         return horizontalPosition;
     }
 
@@ -1018,6 +1317,18 @@ public static partial class Module
         return tangent.SafeNormalized;
     }
 
+    private static DbVector3 NormalizeAttachmentOffset(DbVector3 offset)
+    {
+        var flatOffset = new DbVector3(offset.x, 0f, offset.z);
+        var magnitude = flatOffset.Magnitude;
+        if (magnitude <= 0.0001f)
+        {
+            return new DbVector3(PlayerCarryRadius, 0f, 0f);
+        }
+
+        return flatOffset / magnitude * PlayerCarryRadius;
+    }
+
     private static float DotFlat(DbVector3 a, DbVector3 b)
         => a.x * b.x + a.z * b.z;
 
@@ -1037,6 +1348,14 @@ public static partial class Module
     }
 
     private static float DegreesToRadians(float degrees) => degrees * (MathF.PI / 180f);
+
+    private static float RadiansToDegrees(float radians) => radians * (180f / MathF.PI);
+
+    private static DbVector3 GetPlayerHeadSupportPoint(Player player)
+        => new DbVector3(player.position.x, player.position.y + PlayerHeadSupportHeight, player.position.z);
+
+    private static float YawFromFlatVector(DbVector3 direction)
+        => RadiansToDegrees(MathF.Atan2(direction.x, direction.z));
 
     private static void Emit(
         ReducerContext ctx,

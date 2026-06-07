@@ -95,8 +95,8 @@ public partial class PlayerController3D : Node3D
 	{
 		return ParsePlayerSlot(Username) switch
 		{
-			0 => Colors.Orange,
-			1 => Colors.DodgerBlue,
+			var slot when slot >= 0 && slot % 2 == 0 => Colors.Goldenrod,
+			var slot when slot >= 0 => Colors.DodgerBlue,
 			_ => Colors.LightGray,
 		};
 	}

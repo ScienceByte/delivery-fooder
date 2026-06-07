@@ -39,8 +39,8 @@ public partial class TerrainExporter : EditorScript
 		}
 
 		var sampleBounds = terrainGeometry.Bounds;
-		var heights = SampleTerrain(terrainGeometry, sampleBounds, OutputResolution);
-		var output = BuildGeneratedFile(sampleBounds, heights, OutputResolution);
+		var sampleData = SampleTerrain(terrainGeometry, sampleBounds, OutputResolution);
+		var output = BuildGeneratedFile(sampleBounds, sampleData, OutputResolution);
 
 		var absolutePath = ProjectSettings.GlobalizePath(OutputPath);
 		Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
@@ -48,9 +48,10 @@ public partial class TerrainExporter : EditorScript
 		GD.Print($"Terrain data exported to {OutputPath}");
 	}
 
-	private static float[] SampleTerrain(TerrainGeometry terrainGeometry, Aabb bounds, int resolution)
+	private static TerrainSampleData SampleTerrain(TerrainGeometry terrainGeometry, Aabb bounds, int resolution)
 	{
 		var heights = new float[resolution * resolution];
+		var groundMask = new byte[resolution * resolution];
 		var stepX = bounds.Size.X / (resolution - 1);
 		var stepZ = bounds.Size.Z / (resolution - 1);
 
@@ -60,17 +61,19 @@ public partial class TerrainExporter : EditorScript
 			{
 				var worldX = bounds.Position.X + x * stepX;
 				var worldZ = bounds.Position.Z + z * stepZ;
-				heights[z * resolution + x] = terrainGeometry.SampleHeightOrNearest(worldX, worldZ, stepX, stepZ);
+				var index = z * resolution + x;
+				groundMask[index] = terrainGeometry.TrySampleHeightExact(worldX, worldZ, out _) ? (byte)1 : (byte)0;
+				heights[index] = terrainGeometry.SampleHeightOrNearest(worldX, worldZ, stepX, stepZ);
 			}
 		}
 
-		return heights;
+		return new TerrainSampleData(heights, groundMask);
 	}
 
-	private static string BuildGeneratedFile(Aabb bounds, float[] heights, int resolution)
+	private static string BuildGeneratedFile(Aabb bounds, TerrainSampleData sampleData, int resolution)
 	{
 		var maxHeight = float.MinValue;
-		foreach (var height in heights)
+		foreach (var height in sampleData.Heights)
 		{
 			if (height > maxHeight)
 			{
@@ -92,17 +95,36 @@ public partial class TerrainExporter : EditorScript
 		builder.AppendLine("    public static readonly float[] Heights =");
 		builder.AppendLine("    [");
 
-		for (var i = 0; i < heights.Length; i++)
+		for (var i = 0; i < sampleData.Heights.Length; i++)
 		{
 			builder.Append("        ");
-			builder.Append(Format(heights[i]));
+			builder.Append(Format(sampleData.Heights[i]));
 			builder.Append("f");
-			if (i < heights.Length - 1)
+			if (i < sampleData.Heights.Length - 1)
 			{
 				builder.Append(",");
 			}
 
-			if ((i + 1) % 8 == 0 || i == heights.Length - 1)
+			if ((i + 1) % 8 == 0 || i == sampleData.Heights.Length - 1)
+			{
+				builder.AppendLine();
+			}
+		}
+
+		builder.AppendLine("    ];");
+		builder.AppendLine("    public static readonly byte[] GroundMask =");
+		builder.AppendLine("    [");
+
+		for (var i = 0; i < sampleData.GroundMask.Length; i++)
+		{
+			builder.Append("        ");
+			builder.Append(sampleData.GroundMask[i].ToString(CultureInfo.InvariantCulture));
+			if (i < sampleData.GroundMask.Length - 1)
+			{
+				builder.Append(",");
+			}
+
+			if ((i + 1) % 16 == 0 || i == sampleData.GroundMask.Length - 1)
 			{
 				builder.AppendLine();
 			}
@@ -115,6 +137,8 @@ public partial class TerrainExporter : EditorScript
 
 	private static string Format(float value)
 		=> value.ToString("0.######", CultureInfo.InvariantCulture);
+
+	private readonly record struct TerrainSampleData(float[] Heights, byte[] GroundMask);
 
 	private readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C)
 	{
@@ -367,6 +391,9 @@ public partial class TerrainExporter : EditorScript
 
 			return height;
 		}
+
+		public bool TrySampleHeightExact(float x, float z, out float height)
+			=> TrySampleHeight(x, z, out height);
 
 		public float SampleHeightOrNearest(float x, float z, float stepX, float stepZ)
 		{
