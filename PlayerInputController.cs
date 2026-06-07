@@ -7,6 +7,7 @@ public partial class PlayerInputController : Node
 
 	private float _timeSinceLastSend;
 	private Vector3 _lastSentDirection;
+	private bool _jumpQueued;
 
 	public override void _Process(double delta)
 	{
@@ -23,14 +24,24 @@ public partial class PlayerInputController : Node
 
 		_timeSinceLastSend = 0f;
 		var direction = ReadHorizontalDirection();
+		var jumpRequested = _jumpQueued;
+		_jumpQueued = false;
 
-		if (direction.IsEqualApprox(_lastSentDirection) && direction == Vector3.Zero)
+		if (direction.IsEqualApprox(_lastSentDirection) && direction == Vector3.Zero && !jumpRequested)
 		{
 			return;
 		}
 
 		_lastSentDirection = direction;
-		GameSessionController.Conn.Reducers.UpdatePlayerInput((DbVector3)direction);
+		GameSessionController.Conn.Reducers.UpdatePlayerInput((DbVector3)direction, jumpRequested);
+	}
+
+	public override void _Input(InputEvent @event)
+	{
+		if (@event.IsActionPressed("jump"))
+		{
+			_jumpQueued = true;
+		}
 	}
 
 	private static Vector3 ReadHorizontalDirection()
