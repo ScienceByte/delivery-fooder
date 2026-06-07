@@ -56,7 +56,7 @@ public partial class TerrainExporter : EditorScript
 			{
 				var worldX = bounds.Position.X + x * stepX;
 				var worldZ = bounds.Position.Z + z * stepZ;
-				heights[z * resolution + x] = terrainGeometry.SampleHeight(worldX, worldZ);
+				heights[z * resolution + x] = terrainGeometry.SampleHeightOrNearest(worldX, worldZ, stepX, stepZ);
 			}
 		}
 
@@ -256,6 +256,49 @@ public partial class TerrainExporter : EditorScript
 
 		public float SampleHeight(float x, float z)
 		{
+			if (!TrySampleHeight(x, z, out var height))
+			{
+				throw new InvalidOperationException($"No terrain height found at ({x}, {z}).");
+			}
+
+			return height;
+		}
+
+		public float SampleHeightOrNearest(float x, float z, float stepX, float stepZ)
+		{
+			if (TrySampleHeight(x, z, out var exactHeight))
+			{
+				return exactHeight;
+			}
+
+			var searchStepX = MathF.Max(stepX * 0.5f, 0.001f);
+			var searchStepZ = MathF.Max(stepZ * 0.5f, 0.001f);
+			for (var radius = 1; radius <= 8; radius++)
+			{
+				for (var offsetX = -radius; offsetX <= radius; offsetX++)
+				{
+					for (var offsetZ = -radius; offsetZ <= radius; offsetZ++)
+					{
+						if (Math.Abs(offsetX) != radius && Math.Abs(offsetZ) != radius)
+						{
+							continue;
+						}
+
+						var sampleX = x + offsetX * searchStepX;
+						var sampleZ = z + offsetZ * searchStepZ;
+						if (TrySampleHeight(sampleX, sampleZ, out var nearbyHeight))
+						{
+							return nearbyHeight;
+						}
+					}
+				}
+			}
+
+			throw new InvalidOperationException($"No terrain height found near ({x}, {z}).");
+		}
+
+		private bool TrySampleHeight(float x, float z, out float height)
+		{
 			var found = false;
 			var bestHeight = float.MinValue;
 
@@ -275,10 +318,12 @@ public partial class TerrainExporter : EditorScript
 
 			if (!found)
 			{
-				throw new InvalidOperationException($"No terrain height found at ({x}, {z}).");
+				height = 0f;
+				return false;
 			}
 
-			return bestHeight;
+			height = bestHeight;
+			return true;
 		}
 	}
 }

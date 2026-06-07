@@ -9,7 +9,7 @@ public partial class GameSessionController : Node
 	public static event Action OnSubscriptionApplied;
 	
 	[Export]    
-	private string ServerUrl { get; set; } = "https://maincloud.spacetimedb.com";
+	private string ServerUrl { get; set; } = "http://localhost:3000";
 	
 	[Export]
 	private string DatabaseName { get; set; } = "food-eater";
