@@ -3,6 +3,24 @@ public static partial class LooseItemData
 {
     public static readonly LooseItemDefinition[] Items =
     [
-        new LooseItemDefinition("loose items", 0f, 0f, 0f, -0f, 0f, 0f, 1f, 1f, 1f, 149.1504f, 8.995167f, -0.382106f, 14.1249f)
+        new LooseItemDefinition("Cone", 76.49122f, 10.70716f, 4.62394f, -0f, 0f, 30f, 1.95f, 1.95f, 1.95f, 0.238098f, 0.238097f, 0f, 0.595244f),
+        new LooseItemDefinition("DeliveryFlat", 77.50688f, 11.1337f, 1.954249f, 30f, -89.99999f, 0f, 1.5f, 1.5f, 1.5f, 0.75f, 1.649998f, 0f, 1.35f),
+        new LooseItemDefinition("Firetruck", 66.27347f, 5.735337f, -2.833017f, 15f, -90f, 0f, 1.5f, 1.5f, 1.5f, 0.75f, 1.700005f, 0f, 1.7f),
+        new LooseItemDefinition("Firetruck2", 102.4336f, 4.484223f, -4.290353f, 0.000001f, 20f, 10f, 1.5f, 1.5f, 1.5f, 0.750008f, 1.700003f, -0.000002f, 1.699999f),
+        new LooseItemDefinition("GarbageTruck", 59.50992f, 4.425833f, -2.752474f, 40f, -90f, 0f, 1.5f, 1.5f, 1.5f, 0.8f, 1.750002f, 0f, 1.600002f),
+        new LooseItemDefinition("HatchbackSports", 118.2229f, 0.563118f, 2.695169f, -0f, -0.000004f, 0f, 4.499999f, 4.499999f, 4.499999f, 0.650002f, 1.45f, 0f, 1.1f),
+        new LooseItemDefinition("Police", 131.314f, -0.073755f, 2.157434f, 0.000001f, 90f, -0.000001f, 1.5f, 1.5f, 1.5f, 0.75f, 1.550003f, 0f, 1.3f),
+        new LooseItemDefinition("RaceFuture", 51.21304f, 2.707982f, -4.504421f, -15.00001f, -90f, 0f, 1.5f, 1.499999f, 1.499999f, 0.6f, 1.329887f, -0.000001f, 0.832544f),
+        new LooseItemDefinition("RaceFuture2", 52.62935f, 2.173323f, -1.664506f, -15.00001f, -90f, 0f, 1.5f, 1.499999f, 1.499999f, 0.6f, 1.329887f, 0f, 0.832544f),
+        new LooseItemDefinition("SedanSports", 142.6263f, -0f, -3.8709f, -0f, -89.99999f, 0f, 1.5f, 1.5f, 1.5f, 0.65f, 1.300003f, 0f, 1.1f),
+        new LooseItemDefinition("Suv", 83.57143f, 9.08464f, 2.396804f, 59.99998f, -89.99999f, 0f, 1.500001f, 1.5f, 1.5f, 0.75f, 1.350002f, -0.000004f, 1.299999f),
+        new LooseItemDefinition("SuvLuxury", 143.736f, -0.382106f, -1.601105f, -0f, -89.99999f, 0f, 1.5f, 1.5f, 1.5f, 0.75f, 1.450005f, 0f, 1.3f),
+        new LooseItemDefinition("Taxi", 147.1254f, 0f, 1.657504f, -0f, 90f, 0f, 1.5f, 1.5f, 1.5f, 0.75f, 1.400002f, 0f, 1.5f),
+        new LooseItemDefinition("Truck", 137.2312f, 0.119928f, -4.310515f, -0f, 0.00001f, 0f, 0.45f, 0.45f, 0.45f, 0.75f, 1.500001f, 0f, 1.3f),
+        new LooseItemDefinition("Truck2", 136.9977f, 0.000001f, 0.839205f, -0f, 0.00001f, 0f, 1f, 1f, 1f, 0.75f, 1.5f, 0f, 1.3f),
+        new LooseItemDefinition("Truck3", 137.2026f, 0.149419f, -2.450891f, -0f, -0.000004f, 0f, 0.45f, 0.45f, 0.45f, 0.75f, 1.5f, 0f, 1.3f),
+        new LooseItemDefinition("WheelDefault", 55.03564f, 4.2741f, -3.5165f, -0f, 0f, 90f, 2.999999f, 2.999999f, 2.999999f, 0.2f, 0.3f, -0.299999f, 0.300001f),
+        new LooseItemDefinition("WheelDefault2", 74.48392f, 9.413483f, -2.572693f, -0f, 0f, 90f, 2.999999f, 2.999999f, 2.999999f, 0.2f, 0.3f, -0.300001f, 0.300001f),
+        new LooseItemDefinition("WheelDefault3", 69.96734f, 7.35592f, -3.364629f, -0f, 0f, 90f, 2.999999f, 2.999999f, 2.999999f, 0.2f, 0.3f, -0.300001f, 0.299999f)
     ];
 }

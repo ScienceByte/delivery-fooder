@@ -25,6 +25,9 @@ public partial class LooseItemController : Node3D
 			{
 				visual.Name = $"{_definition.Name} Visual";
 				visual.Position = Vector3.Zero;
+				visual.Rotation = Vector3.Zero;
+				visual.Scale = Vector3.One;
+				SetVisualsVisible(visual, true);
 				AddChild(visual);
 				return;
 			}
@@ -47,5 +50,21 @@ public partial class LooseItemController : Node3D
 				AlbedoColor = Colors.SlateGray,
 			},
 		});
+	}
+
+	private static void SetVisualsVisible(Node node, bool visible)
+	{
+		if (node is VisualInstance3D visual)
+		{
+			visual.Visible = visible;
+		}
+
+		foreach (var child in node.GetChildren())
+		{
+			if (child is Node childNode)
+			{
+				SetVisualsVisible(childNode, visible);
+			}
+		}
 	}
 }

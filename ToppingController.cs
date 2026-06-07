@@ -182,14 +182,14 @@ public partial class ToppingController : Node3D
 		}
 
 		var span = players[0].HeadSupportPoint.DistanceTo(players[1].HeadSupportPoint);
-		var profile = ToppingShapeData.GetProfile(ToppingName);
-		var baseLength = MathF.Max(profile.HalfWidth, profile.HalfDepth) * 2f;
-		if (baseLength <= 0.001f)
+		var baseSpan = players[0].AttachmentOffset.DistanceTo(players[1].AttachmentOffset);
+		if (baseSpan <= 0.001f)
 		{
 			return Vector3.One;
 		}
 
-		return new Vector3(1f, 1f, MathF.Max(1f, span / baseLength));
+		var stretch = Mathf.Clamp(span / baseSpan, 0.9f, 1.15f);
+		return new Vector3(1f, 1f, stretch);
 	}
 
 	private Vector3 ResolveFreeRotation()
