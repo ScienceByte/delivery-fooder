@@ -2,6 +2,8 @@ using Godot;
 
 public partial class PlayerCameraController : Node3D
 {
+	public static PlayerCameraController LocalInstance { get; private set; }
+
 	private const float FollowSpeed = 8f;
 	private const float RotationSensitivity = 0.01f;
 	private const float ZoomStep = 1.25f;
@@ -19,6 +21,8 @@ public partial class PlayerCameraController : Node3D
 
 	public override void _Ready()
 	{
+		LocalInstance = this;
+
 		_camera = new Camera3D
 		{
 			Name = "Camera",
@@ -26,6 +30,14 @@ public partial class PlayerCameraController : Node3D
 			Fov = 65f,
 		};
 		AddChild(_camera);
+	}
+
+	public override void _ExitTree()
+	{
+		if (LocalInstance == this)
+		{
+			LocalInstance = null;
+		}
 	}
 
 	public override void _UnhandledInput(InputEvent @event)
@@ -86,5 +98,19 @@ public partial class PlayerCameraController : Node3D
 		}
 
 		return null;
+	}
+
+	public Vector3 GetFlattenedForward()
+	{
+		var forward = -GlobalBasis.Z;
+		forward.Y = 0f;
+		return forward.Normalized();
+	}
+
+	public Vector3 GetFlattenedRight()
+	{
+		var right = GlobalBasis.X;
+		right.Y = 0f;
+		return right.Normalized();
 	}
 }

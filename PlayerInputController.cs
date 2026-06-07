@@ -46,25 +46,39 @@ public partial class PlayerInputController : Node
 
 	private static Vector3 ReadHorizontalDirection()
 	{
-		var direction = Vector3.Zero;
+		var localDirection = Vector3.Zero;
 
 		if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up))
 		{
-			direction.Z -= 1f;
+			localDirection.Z -= 1f;
 		}
 		if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down))
 		{
-			direction.Z += 1f;
+			localDirection.Z += 1f;
 		}
 		if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left))
 		{
-			direction.X -= 1f;
+			localDirection.X -= 1f;
 		}
 		if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right))
 		{
-			direction.X += 1f;
+			localDirection.X += 1f;
 		}
 
-		return direction.Normalized();
+		if (localDirection == Vector3.Zero)
+		{
+			return Vector3.Zero;
+		}
+
+		var cameraController = PlayerCameraController.LocalInstance;
+		if (cameraController == null)
+		{
+			return localDirection.Normalized();
+		}
+
+		var forward = cameraController.GetFlattenedForward();
+		var right = cameraController.GetFlattenedRight();
+		var worldDirection = forward * -localDirection.Z + right * localDirection.X;
+		return worldDirection.Normalized();
 	}
 }
