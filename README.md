@@ -1,8 +1,10 @@
-# food-eater
+ # Sandwich Delviery
 
 Co-op sandwich delivery game built with Godot + C# and a SpacetimeDB authoritative backend.
 
 Players carry a shared sandwich stack to the endpoint while avoiding impacts and preserving toppings.
+
+This build currently supports exactly 2 players.
 
 ## Tech Stack
 
@@ -32,6 +34,7 @@ Players carry a shared sandwich stack to the endpoint while avoiding impacts and
 
 Install the following:
 
+- (For Direct game play) Windows users can download the packaged build from `https://nh-cpu.itch.io/sandwich-delivery`, unzip it, and run the `.exe`. This packaged build is Windows-only.
 - Godot 4 with C# support.
 - .NET SDK 8.x.
 - SpacetimeDB CLI (`spacetime`).
