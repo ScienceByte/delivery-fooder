@@ -20,6 +20,7 @@ public static partial class Module
     private static readonly DbVector3 SummitTargetPosition = new(1f, 0f, 0f);
     private const float PlayerCollisionRadius = 0.45f;
     private const float PlayerCollisionHeight = 1.8f;
+    private const float LooseObstacleSweepStep = 0.15f;
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
     private const float PlayerHeadSupportHeight = 1.45f;
@@ -1204,19 +1205,22 @@ public static partial class Module
         desiredHorizontalPosition.y = 0f;
         currentHorizontalPosition.y = 0f;
 
-        if (!IntersectsLooseObstacle(desiredHorizontalPosition, bodyBaseY))
+        if (!IntersectsLooseObstacle(currentHorizontalPosition, bodyBaseY) &&
+            !MotionPathIntersectsLooseObstacle(currentHorizontalPosition, desiredHorizontalPosition, bodyBaseY))
         {
             return desiredHorizontalPosition;
         }
 
         var xOnlyPosition = new DbVector3(desiredHorizontalPosition.x, 0f, currentHorizontalPosition.z);
-        if (!IntersectsLooseObstacle(xOnlyPosition, bodyBaseY))
+        if (!IntersectsLooseObstacle(currentHorizontalPosition, bodyBaseY) &&
+            !MotionPathIntersectsLooseObstacle(currentHorizontalPosition, xOnlyPosition, bodyBaseY))
         {
             return xOnlyPosition;
         }
 
         var zOnlyPosition = new DbVector3(currentHorizontalPosition.x, 0f, desiredHorizontalPosition.z);
-        if (!IntersectsLooseObstacle(zOnlyPosition, bodyBaseY))
+        if (!IntersectsLooseObstacle(currentHorizontalPosition, bodyBaseY) &&
+            !MotionPathIntersectsLooseObstacle(currentHorizontalPosition, zOnlyPosition, bodyBaseY))
         {
             return zOnlyPosition;
         }
@@ -1224,20 +1228,34 @@ public static partial class Module
         return currentHorizontalPosition;
     }
 
-    private static bool IntersectsLooseObstacle(DbVector3 horizontalPosition, float bodyBaseY)
+    private static bool MotionPathIntersectsLooseObstacle(
+        DbVector3 startHorizontalPosition,
+        DbVector3 endHorizontalPosition,
+        float bodyBaseY
+    )
     {
-        var bodyTopY = bodyBaseY + PlayerCollisionHeight;
-        foreach (var item in LooseItemData.Items)
+        if (IntersectsLooseObstacle(endHorizontalPosition, bodyBaseY))
         {
-            var scaleY = MathF.Abs(item.ScaleY);
-            var obstacleMinY = item.PositionY + item.MinY * scaleY;
-            var obstacleMaxY = item.PositionY + item.MaxY * scaleY;
-            if (bodyTopY < obstacleMinY || bodyBaseY > obstacleMaxY)
-            {
-                continue;
-            }
+            return true;
+        }
 
-            if (IntersectsLooseObstacleFootprint(horizontalPosition, item))
+        var delta = endHorizontalPosition - startHorizontalPosition;
+        var horizontalDistance = MathF.Sqrt(delta.x * delta.x + delta.z * delta.z);
+        if (horizontalDistance <= 0.0001f)
+        {
+            return false;
+        }
+
+        var steps = Math.Max(1, (int)MathF.Ceiling(horizontalDistance / LooseObstacleSweepStep));
+        for (var step = 1; step <= steps; step++)
+        {
+            var t = step / (float)steps;
+            var sample = new DbVector3(
+                Lerp(startHorizontalPosition.x, endHorizontalPosition.x, t),
+                0f,
+                Lerp(startHorizontalPosition.z, endHorizontalPosition.z, t)
+            );
+            if (IntersectsLooseObstacle(sample, bodyBaseY))
             {
                 return true;
             }
@@ -1246,12 +1264,44 @@ public static partial class Module
         return false;
     }
 
-    private static bool IntersectsLooseObstacleFootprint(DbVector3 horizontalPosition, LooseItemDefinition item)
+    private static bool IntersectsLooseObstacle(DbVector3 horizontalPosition, float bodyBaseY)
+    {
+        var bodyTopY = bodyBaseY + PlayerCollisionHeight;
+        foreach (var item in LooseItemData.Items)
+        {
+            var collider = ResolveLooseObstacleCollider(item);
+            var scaleY = MathF.Abs(item.ScaleY);
+            var obstacleMinY = item.PositionY + collider.MinY * scaleY;
+            var obstacleMaxY = item.PositionY + collider.MaxY * scaleY;
+            if (TryTerrainHeight(new DbVector3(item.PositionX, 0f, item.PositionZ), out var supportingGroundHeight))
+            {
+                obstacleMinY = MathF.Min(obstacleMinY, supportingGroundHeight);
+            }
+
+            if (bodyTopY < obstacleMinY || bodyBaseY > obstacleMaxY)
+            {
+                continue;
+            }
+
+            if (IntersectsLooseObstacleFootprint(horizontalPosition, item, collider))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IntersectsLooseObstacleFootprint(
+        DbVector3 horizontalPosition,
+        LooseItemDefinition item,
+        LooseObstacleCollider collider
+    )
     {
         var scaleX = MathF.Abs(item.ScaleX);
         var scaleZ = MathF.Abs(item.ScaleZ);
-        var halfWidth = item.HalfWidth * scaleX + PlayerCollisionRadius;
-        var halfDepth = item.HalfDepth * scaleZ + PlayerCollisionRadius;
+        var halfWidth = collider.HalfWidth * scaleX + PlayerCollisionRadius;
+        var halfDepth = collider.HalfDepth * scaleZ + PlayerCollisionRadius;
 
         var deltaX = horizontalPosition.x - item.PositionX;
         var deltaZ = horizontalPosition.z - item.PositionZ;
@@ -1262,6 +1312,41 @@ public static partial class Module
         var localZ = deltaX * sin + deltaZ * cos;
 
         return MathF.Abs(localX) <= halfWidth && MathF.Abs(localZ) <= halfDepth;
+    }
+
+    private static LooseObstacleCollider ResolveLooseObstacleCollider(LooseItemDefinition item)
+    {
+        if (TryGetManualLooseObstacleCollider(item.Name, out var manualCollider))
+        {
+            return manualCollider;
+        }
+
+        return new LooseObstacleCollider(item.HalfWidth, item.HalfDepth, item.MinY, item.MaxY);
+    }
+
+    private static bool TryGetManualLooseObstacleCollider(string itemName, out LooseObstacleCollider collider)
+    {
+        switch (itemName)
+        {
+            case "Firetruck":
+                collider = new LooseObstacleCollider(1.05f, 1.95f, -0.05f, 1.85f);
+                return true;
+            case "GarbageTruck":
+                collider = new LooseObstacleCollider(1.05f, 2.05f, -0.05f, 1.8f);
+                return true;
+            case "RaceFuture":
+            case "RaceFuture2":
+                collider = new LooseObstacleCollider(0.9f, 1.55f, -0.05f, 1.0f);
+                return true;
+            case "WheelDefault":
+            case "WheelDefault2":
+            case "WheelDefault3":
+                collider = new LooseObstacleCollider(0.42f, 0.42f, -0.35f, 0.35f);
+                return true;
+            default:
+                collider = default;
+                return false;
+        }
     }
 
     private static DbVector3 LocalSlideAcceleration(
@@ -1417,6 +1502,7 @@ public static partial class Module
     }
 
     private readonly record struct SimulatedPlayerState(Player Player, float JumpOffset, float VerticalVelocity);
+    private readonly record struct LooseObstacleCollider(float HalfWidth, float HalfDepth, float MinY, float MaxY);
 
     private static DbVector3 RotateFlat(DbVector3 value, float degrees)
     {
