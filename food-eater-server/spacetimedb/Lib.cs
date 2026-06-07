@@ -22,6 +22,8 @@ public static partial class Module
     private const float DefaultGravity = 12f;
     private const float DefaultJumpImpulse = 8.5f;
     private const float MaxAirHeightBuffer = 10f;
+    private const float JumpLiftInfluence = 0.85f;
+    private const float JumpTiltFactor = 18f;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
     public partial struct SimulationTimer
@@ -29,6 +31,14 @@ public static partial class Module
         [PrimaryKey, AutoInc]
         public ulong scheduled_id;
         public ScheduleAt scheduled_at;
+    }
+
+    [Table(Accessor = "player_motion")]
+    public partial struct PlayerMotion
+    {
+        [PrimaryKey]
+        public Identity identity;
+        public float vertical_velocity;
     }
 
     [Table(Accessor = "config", Public = true)]
@@ -144,6 +154,11 @@ public static partial class Module
                     RequireConfig(ctx)
                 ),
             });
+            ctx.Db.player_motion.Insert(new PlayerMotion
+            {
+                identity = ctx.Sender,
+                vertical_velocity = 0f,
+            });
             ctx.Db.logged_out_player.identity.Delete(ctx.Sender);
             return;
         }
@@ -164,6 +179,11 @@ public static partial class Module
             position = ResolvePlayerPosition(RequireSandwich(ctx), attachmentOffset, config),
             attachment_offset = attachmentOffset,
         });
+        ctx.Db.player_motion.Insert(new PlayerMotion
+        {
+            identity = ctx.Sender,
+            vertical_velocity = 0f,
+        });
     }
 
     [Reducer(ReducerKind.ClientDisconnected)]
@@ -176,6 +196,7 @@ public static partial class Module
             jump_queued = false,
         });
         ctx.Db.player.identity.Delete(ctx.Sender);
+        ctx.Db.player_motion.identity.Delete(ctx.Sender);
     }
 
     [Reducer]
@@ -266,6 +287,11 @@ public static partial class Module
                 input_direction = DbVector3.Zero,
                 jump_queued = false,
             });
+            ctx.Db.player_motion.identity.Update(new PlayerMotion
+            {
+                identity = activePlayer.identity,
+                vertical_velocity = 0f,
+            });
         }
 
         Emit(ctx, "run_reset", player.player_id, 0, $"{player.name} reset the delivery.");
@@ -278,12 +304,11 @@ public static partial class Module
         var sandwich = RequireSandwich(ctx);
         var players = ctx.Db.player.Iter().ToList();
         var impacted = false;
+        var disagreementTilt = 0f;
 
         if (!sandwich.completed)
         {
-            var previousGroundHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
-            var wasGrounded = sandwich.position.y <= previousGroundHeight + GroundedHeightTolerance;
-
+            var previousSandwichY = sandwich.position.y;
             if (players.Count > 0)
             {
                 var averageInput = DbVector3.Zero;
@@ -307,7 +332,7 @@ public static partial class Module
                     targetVelocity,
                     0.35f
                 );
-                sandwich.tilt = Lerp(sandwich.tilt, disagreement * 45f, 0.2f);
+                disagreementTilt = disagreement * 45f;
             }
             else
             {
@@ -316,37 +341,49 @@ public static partial class Module
                     sandwich.velocity.y,
                     sandwich.velocity.z * 0.9f
                 );
-                sandwich.tilt = Lerp(sandwich.tilt, 0f, 0.1f);
+                disagreementTilt = 0f;
             }
 
             sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             sandwich.position = ClampToTerrainBounds(sandwich.position, config);
+            var playerStates = SimulatePlayers(ctx, players, sandwich, config);
             var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
-            // Jump is shared because players are rigidly attached to one authoritative sandwich body.
-            var jumpRequested = players.Any(player => player.jump_queued);
 
-            if (jumpRequested && wasGrounded)
+            if (playerStates.Count > 0)
             {
-                sandwich.velocity.y = config.jump_impulse;
-            }
+                var averageJumpOffset = 0f;
+                var averageVerticalVelocity = 0f;
+                var jumpTilt = 0f;
 
-            if (wasGrounded && !jumpRequested)
-            {
-                sandwich.position.y = targetSandwichHeight;
-                sandwich.velocity.y = 0f;
+                foreach (var state in playerStates)
+                {
+                    averageJumpOffset += state.JumpOffset;
+                    averageVerticalVelocity += state.VerticalVelocity;
+                    jumpTilt += state.Player.attachment_offset.x * state.JumpOffset;
+                }
+
+                averageJumpOffset /= playerStates.Count;
+                averageVerticalVelocity /= playerStates.Count;
+                jumpTilt = playerStates.Count > 0
+                    ? jumpTilt / (playerStates.Count * MathF.Max(PlayerCarryRadius, 0.001f))
+                    : 0f;
+
+                sandwich.position.y = targetSandwichHeight + averageJumpOffset * JumpLiftInfluence;
+                sandwich.velocity.y = averageVerticalVelocity;
+                sandwich.tilt = Lerp(sandwich.tilt, disagreementTilt + jumpTilt * JumpTiltFactor, 0.2f);
             }
             else
             {
-                sandwich.velocity.y -= config.gravity * TickSeconds;
-                sandwich.position.y += sandwich.velocity.y * TickSeconds;
-
-                if (sandwich.position.y <= targetSandwichHeight)
-                {
-                    impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
-                    sandwich.position.y = targetSandwichHeight;
-                    sandwich.velocity.y = 0f;
-                }
+                impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
+                sandwich.position.y = targetSandwichHeight;
+                sandwich.velocity.y = 0f;
+                sandwich.tilt = Lerp(sandwich.tilt, disagreementTilt, 0.1f);
             }
+
+            impacted |=
+                previousSandwichY > targetSandwichHeight + GroundedHeightTolerance &&
+                sandwich.position.y <= targetSandwichHeight + GroundedHeightTolerance &&
+                sandwich.velocity.y < -config.topping_drop_impact_speed;
 
             sandwich.attached_player_count = players.Count;
             sandwich.tick++;
@@ -361,9 +398,7 @@ public static partial class Module
             sandwich.completed = false;
         }
 
-        ClearJumpQueues(ctx, players);
         ctx.Db.sandwich.id.Update(sandwich);
-        UpdateAttachedPlayerPositions(ctx, sandwich, config);
         UpdateAttachedToppingPositions(ctx, sandwich);
         UpdateDroppedToppings(ctx, config);
     }
@@ -376,6 +411,9 @@ public static partial class Module
 
     private static Player RequirePlayer(ReducerContext ctx)
         => ctx.Db.player.identity.Find(ctx.Sender) ?? throw new Exception("Player not found.");
+
+    private static PlayerMotion RequirePlayerMotion(ReducerContext ctx, Identity identity)
+        => ctx.Db.player_motion.identity.Find(identity) ?? throw new Exception("Player motion not found.");
 
     private static Sandwich CreateInitialSandwich(Config config)
     {
@@ -481,23 +519,64 @@ public static partial class Module
         }
     }
 
-    private static void ClearJumpQueues(ReducerContext ctx, System.Collections.Generic.List<Player> players)
+    private static System.Collections.Generic.List<SimulatedPlayerState> SimulatePlayers(
+        ReducerContext ctx,
+        System.Collections.Generic.List<Player> players,
+        Sandwich sandwich,
+        Config config
+    )
     {
-        foreach (var player in players.Where(player => player.jump_queued))
+        var states = new System.Collections.Generic.List<SimulatedPlayerState>(players.Count);
+        foreach (var player in players)
         {
-            ctx.Db.player.identity.Update(player with { jump_queued = false });
-        }
-    }
+            var motion = RequirePlayerMotion(ctx, player.identity);
+            var nextHorizontalPosition = new DbVector3(
+                sandwich.position.x + player.attachment_offset.x,
+                0f,
+                sandwich.position.z + player.attachment_offset.z
+            );
+            nextHorizontalPosition = ClampToTerrainBounds(nextHorizontalPosition, config);
 
-    private static void UpdateAttachedPlayerPositions(ReducerContext ctx, Sandwich sandwich, Config config)
-    {
-        foreach (var player in ctx.Db.player.Iter().ToList())
-        {
-            ctx.Db.player.identity.Update(player with
+            var currentGroundHeight = TerrainHeight(player.position, config);
+            var jumpOffset = MathF.Max(0f, player.position.y - currentGroundHeight);
+            var verticalVelocity = motion.vertical_velocity;
+
+            if (player.jump_queued && jumpOffset <= GroundedHeightTolerance)
             {
-                position = ResolvePlayerPosition(sandwich, player.attachment_offset, config),
-            });
+                verticalVelocity = config.jump_impulse;
+            }
+
+            verticalVelocity -= config.gravity * TickSeconds;
+            jumpOffset += verticalVelocity * TickSeconds;
+            if (jumpOffset <= 0f)
+            {
+                jumpOffset = 0f;
+                verticalVelocity = 0f;
+            }
+
+            var nextGroundHeight = TerrainHeight(nextHorizontalPosition, config);
+            var nextPosition = new DbVector3(
+                nextHorizontalPosition.x,
+                nextGroundHeight + jumpOffset,
+                nextHorizontalPosition.z
+            );
+
+            var updatedPlayer = player with
+            {
+                position = nextPosition,
+                jump_queued = false,
+            };
+            var updatedMotion = motion with
+            {
+                vertical_velocity = verticalVelocity,
+            };
+
+            ctx.Db.player.identity.Update(updatedPlayer);
+            ctx.Db.player_motion.identity.Update(updatedMotion);
+            states.Add(new SimulatedPlayerState(updatedPlayer, jumpOffset, verticalVelocity));
         }
+
+        return states;
     }
 
     private static DbVector3 AttachmentOffset(int index)
@@ -550,6 +629,8 @@ public static partial class Module
         horizontalPosition.y = TerrainHeight(horizontalPosition, config) + airborneOffset;
         return horizontalPosition;
     }
+
+    private readonly record struct SimulatedPlayerState(Player Player, float JumpOffset, float VerticalVelocity);
 
     private static void Emit(
         ReducerContext ctx,
