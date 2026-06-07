@@ -11,14 +11,14 @@ namespace SpacetimeDB.Types
 {
     [SpacetimeDB.Type]
     [DataContract]
-    public sealed partial class SpawnFoodTimer
+    public sealed partial class SimulationTimer
     {
         [DataMember(Name = "scheduled_id")]
         public ulong ScheduledId;
         [DataMember(Name = "scheduled_at")]
         public SpacetimeDB.ScheduleAt ScheduledAt;
 
-        public SpawnFoodTimer(
+        public SimulationTimer(
             ulong ScheduledId,
             SpacetimeDB.ScheduleAt ScheduledAt
         )
@@ -27,7 +27,7 @@ namespace SpacetimeDB.Types
             this.ScheduledAt = ScheduledAt;
         }
 
-        public SpawnFoodTimer()
+        public SimulationTimer()
         {
             this.ScheduledAt = null!;
         }

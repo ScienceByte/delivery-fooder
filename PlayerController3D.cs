@@ -1,124 +1,76 @@
-using System.Collections.Generic;
-using System.Linq;
 using Godot;
 using SpacetimeDB.Types;
 
-public partial class PlayerController : Node
+public partial class PlayerController3D : Node3D
 {
-	const int SEND_UPDATES_PER_SEC = 20;
-	const float SEND_UPDATES_FREQUENCY = 1f / SEND_UPDATES_PER_SEC;
+	private const float PositionInterpolationSpeed = 14f;
 
-	public static PlayerController Local { get; private set; }
+	private readonly int _playerId;
+	private readonly bool _isLocalPlayer;
+	private Vector3 _targetPosition;
 
-	private int _playerId;
-	private float _lastMovementSendTimestamp;
-	private Vector2? _lockInputPosition;
-	private readonly List<CircleController> _ownedCircles = new();
+	public int PlayerId => _playerId;
+	public string Username { get; private set; }
+	public bool IsLocalPlayer => _isLocalPlayer;
+	public Vector3 AttachmentOffset { get; private set; }
 
-	private bool _lockInputTogglePressed;
-
-	public string Username => GameManager.Conn.Db.Player.PlayerId.Find(_playerId).Name;
-	public int NumberOfOwnedCircles => _ownedCircles.Count;
-	public bool IsLocalPlayer => this == Local;
-
-	public PlayerController(Player player)
+	public PlayerController3D(Player player)
 	{
 		_playerId = player.PlayerId;
-		if (player.Identity == GameManager.LocalIdentity)
-		{
-			Local = this;
-		}
+		_isLocalPlayer = player.Identity == GameSessionController.LocalIdentity;
+		Username = player.Name;
+		AttachmentOffset = player.AttachmentOffset;
+		_targetPosition = player.Position;
+		Position = _targetPosition;
 	}
 
-	public override void _ExitTree()
+	public override void _Ready()
 	{
-		foreach (var circle in _ownedCircles.ToList())
-		{
-			if (IsInstanceValid(circle))
-			{
-				circle.QueueFree();
-			}
-		}
-
-		_ownedCircles.Clear();
-		if (Local == this)
-		{
-			Local = null;
-		}
+		Name = $"Player - {Username}";
+		AddPlaceholderVisual();
 	}
-
-	public void OnCircleSpawned(CircleController circle)
-	{
-		_ownedCircles.Add(circle);
-	}
-
-	public void OnCircleDeleted(CircleController deletedCircle)
-	{
-		_ownedCircles.Remove(deletedCircle);
-	}
-
-	public int TotalMass() => _ownedCircles
-			.Select(circle => GameManager.Conn.Db.Entity.EntityId.Find(circle.EntityId))
-			.Sum(entity => entity?.Mass ?? 0);
-
-	public bool TryGetCenterOfMass(out Vector2 centerOfMass)
-	{
-		if (_ownedCircles.Count == 0)
-		{
-			centerOfMass = Vector2.Zero;
-			return false;
-		}
-
-		var totalPos = Vector2.Zero;
-		var totalMass = 0.0f;
-		foreach (var circle in _ownedCircles)
-		{
-			var entity = GameManager.Conn.Db.Entity.EntityId.Find(circle.EntityId);
-			if (entity == null) continue;
-
-			totalPos += circle.GlobalPosition * entity.Mass;
-			totalMass += entity.Mass;
-		}
-
-		if (totalMass <= 0)
-		{
-			centerOfMass = Vector2.Zero;
-			return false;
-		}
-		
-		centerOfMass = totalPos / totalMass;
-		return true;
-	}
-
 
 	public override void _Process(double delta)
-{
-	if (!IsLocalPlayer || NumberOfOwnedCircles == 0 || !GameManager.IsConnected()) return;
-
-	var lockTogglePressed = Input.IsPhysicalKeyPressed(Key.Q);
-	if (lockTogglePressed && !_lockInputTogglePressed)
 	{
-		if (_lockInputPosition.HasValue)
-		{
-			_lockInputPosition = null;
-		}
-		else
-		{
-			_lockInputPosition = GetViewport().GetMousePosition();
-		}
+		var weight = 1f - Mathf.Exp(-PositionInterpolationSpeed * (float)delta);
+		Position = Position.Lerp(_targetPosition, weight);
 	}
-	_lockInputTogglePressed = lockTogglePressed;
 
-	var nowSeconds = Time.GetTicksMsec() / 1000.0f;
-	if (nowSeconds - _lastMovementSendTimestamp < SEND_UPDATES_FREQUENCY) return;
+	public void ApplyNetworkState(Player player)
+	{
+		if (player.PlayerId != _playerId)
+		{
+			GD.PushError(
+				$"Cannot apply player {player.PlayerId} state to player {_playerId} controller."
+			);
+			return;
+		}
 
-	_lastMovementSendTimestamp = nowSeconds;
+		Username = player.Name;
+		AttachmentOffset = player.AttachmentOffset;
+		_targetPosition = player.Position;
+		Name = $"Player - {Username}";
+	}
 
-	var mousePosition = _lockInputPosition ?? GetViewport().GetMousePosition();
-	var screenSize = GetViewport().GetVisibleRect().Size;
-	var centerOfScreen = screenSize / 2.0f;
-	var direction = (mousePosition - centerOfScreen) / (screenSize.Y / 3.0f);
+	private void AddPlaceholderVisual()
+	{
+		var meshInstance = new MeshInstance3D
+		{
+			Name = "PlaceholderMesh",
+			Position = new Vector3(0f, 0.9f, 0f),
+			Mesh = new CapsuleMesh
+			{
+				Radius = 0.4f,
+				Height = 1.8f,
+			},
+		};
 
-	GameManager.Conn.Reducers.UpdatePlayerInput(direction);
-}
+		var material = new StandardMaterial3D
+		{
+			AlbedoColor = IsLocalPlayer ? Colors.DodgerBlue : Colors.Orange,
+		};
+		meshInstance.MaterialOverride = material;
+
+		AddChild(meshInstance);
+	}
 }

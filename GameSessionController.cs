@@ -1,10 +1,9 @@
 using System;
-using System.Collections.Generic;
 using SpacetimeDB;
 using SpacetimeDB.Types;
 using Godot;
 
-public partial class GameManager : Node
+public partial class GameSessionController : Node
 {
 	public static event Action OnConnected;
 	public static event Action OnSubscriptionApplied;
@@ -16,22 +15,14 @@ public partial class GameManager : Node
 	private string DatabaseName { get; set; } = "food-eater";
 
 	[Export]
-	private Color BackgroundColor { get; set; } = Colors.MidnightBlue;
-
-	[Export]
-	private float BorderThickness { get; set; } = 5.0f;
-
-	[Export]
-	private Color BorderColor { get; set; } = Colors.Goldenrod;
-
-	[Export]
 	private string DefaultPlayerName { get; set; } = "3Blave";
 
-	private static GameManager Instance { get; set; }
+	private static GameSessionController Instance { get; set; }
 	public static Identity LocalIdentity { get; private set; }
 	public static DbConnection Conn { get; private set; }
+	private bool UsePersistedToken => !IsLocalServerUrl(ServerUrl);
 
-	public GameManager()
+	public GameSessionController()
 	{
 		var builder = DbConnection.Builder()
 			.OnConnect(HandleConnect)
@@ -40,7 +31,7 @@ public partial class GameManager : Node
 			.WithUri(ServerUrl)
 			.WithDatabaseName(DatabaseName);
 
-		if (AuthToken.TryGetToken(out var authToken))
+		if (UsePersistedToken && AuthToken.TryGetToken(out var authToken))
 		{
 			builder = builder.WithToken(authToken);
 		}
@@ -73,15 +64,18 @@ public partial class GameManager : Node
 	}
 
 	// Called when we connect to SpacetimeDB and receive our client identity
-	private void HandleConnect(DbConnection conn, Identity identity, string token)
+private void HandleConnect(DbConnection conn, Identity identity, string token)
 {
 	GD.Print("Connected.");
-	AuthToken.SaveToken(token);
+	if (UsePersistedToken)
+	{
+		AuthToken.SaveToken(token);
+	}
 	LocalIdentity = identity;
 
 	OnConnected?.Invoke();
 
-	AddChild(new Instantiator(conn));
+	AddChild(new NetworkEntitySpawner(conn));
 
 	// Request all tables
 	Conn.SubscriptionBuilder()
@@ -107,45 +101,17 @@ private void HandleSubscriptionApplied(SubscriptionEventContext ctx)
 		GD.Print("Subscription applied!");
 		OnSubscriptionApplied?.Invoke();
 
-		// Once we have the initial subscription sync'd to the client cache
-		// Get the world size from the config table and set up the arena
-		var worldSize = Conn.Db.Config.Id.Find(0).WorldSize;
-		SetupArena(worldSize);
-		
 		ctx.Reducers.EnterGame(DefaultPlayerName);
 	}
 
-
-private void SetupArena(float worldSize)
-{
-	var polygon = new[]
+	private static bool IsLocalServerUrl(string serverUrl)
 	{
-		new Vector2(0, 0),
-		new Vector2(worldSize, 0),
-		new Vector2(worldSize, worldSize),
-		new Vector2(0, worldSize),
-	};
-	var background = new Polygon2D
-	{
-		Name = "Background",
-		Color = BackgroundColor,
-		Position = Vector2.Zero,
-		Polygon = polygon,
-		ZIndex = -1000
-	};
-	background.AddChild(new Polygon2D
-	{
-		Name = "Border",
-		Color = BorderColor,
-		Position = Vector2.Zero,
-		InvertEnabled = true,
-		InvertBorder = BorderThickness,
-		Polygon = polygon
-	});
-	AddChild(background);
+		if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri))
+		{
+			return false;
+		}
 
-	AddChild(new CameraController(worldSize));
-}
-
-	
+		return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+			|| uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+	}
 }

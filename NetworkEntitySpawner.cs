@@ -2,141 +2,145 @@ using System.Collections.Generic;
 using Godot;
 using SpacetimeDB.Types;
 
-public partial class Instantiator : Node
+public partial class NetworkEntitySpawner : Node3D
 {
+	private readonly Dictionary<int, PlayerController3D> _players = new();
+	private readonly Dictionary<int, SandwichController> _sandwiches = new();
+	private readonly Dictionary<int, ToppingController> _toppings = new();
 	private DbConnection _conn;
-	private DbConnection Conn
+
+	public NetworkEntitySpawner(DbConnection conn)
 	{
-		get => _conn;
-		set
-		{
-			if (value == _conn) return;
-
-			if (_conn != null)
-			{
-				_conn.Db.Circle.OnInsert -= CircleOnInsert;
-				_conn.Db.Entity.OnUpdate -= EntityOnUpdate;
-				_conn.Db.Entity.OnDelete -= EntityOnDelete;
-				_conn.Db.Food.OnInsert -= FoodOnInsert;
-				_conn.Db.Player.OnInsert -= PlayerOnInsert;
-				_conn.Db.Player.OnDelete -= PlayerOnDelete;
-			}
-			
-			_conn = value;
-
-			if (value != null)
-			{
-				value.Db.Circle.OnInsert += CircleOnInsert;
-				value.Db.Entity.OnUpdate += EntityOnUpdate;
-				value.Db.Entity.OnDelete += EntityOnDelete;
-				value.Db.Food.OnInsert += FoodOnInsert;
-				value.Db.Player.OnInsert += PlayerOnInsert;
-				value.Db.Player.OnDelete += PlayerOnDelete;
-			}
-		}
+		_conn = conn;
 	}
-	
-	private static Dictionary<int, EntityController> Entities { get; } = new();
-	private static Dictionary<int, PlayerController> Players { get; } = new();
-	
-	public Instantiator(DbConnection conn)
+
+	public override void _EnterTree()
 	{
-		Conn = conn;
+		_conn.Db.Player.OnInsert += PlayerOnInsert;
+		_conn.Db.Player.OnUpdate += PlayerOnUpdate;
+		_conn.Db.Player.OnDelete += PlayerOnDelete;
+
+		_conn.Db.Sandwich.OnInsert += SandwichOnInsert;
+		_conn.Db.Sandwich.OnUpdate += SandwichOnUpdate;
+		_conn.Db.Sandwich.OnDelete += SandwichOnDelete;
+
+		_conn.Db.Topping.OnInsert += ToppingOnInsert;
+		_conn.Db.Topping.OnUpdate += ToppingOnUpdate;
+		_conn.Db.Topping.OnDelete += ToppingOnDelete;
 	}
 
 	public override void _ExitTree()
 	{
-		GD.PrintErr("Instantiator Exit Tree");
-		Conn = null;
-	}
-
-	private void CircleOnInsert(EventContext context, Circle insertedValue)
-	{
-		var player = GetOrCreatePlayer(insertedValue.PlayerId);
-		var entityController = SpawnCircle(insertedValue, player);
-		Entities[insertedValue.EntityId] = entityController;
-	}
-
-	private void EntityOnUpdate(EventContext context, Entity oldEntity, Entity newEntity)
-	{
-		if (Entities.TryGetValue(newEntity.EntityId, out var entityController))
+		if (_conn == null)
 		{
-			entityController.OnEntityUpdated(newEntity);
+			return;
+		}
+
+		_conn.Db.Player.OnInsert -= PlayerOnInsert;
+		_conn.Db.Player.OnUpdate -= PlayerOnUpdate;
+		_conn.Db.Player.OnDelete -= PlayerOnDelete;
+
+		_conn.Db.Sandwich.OnInsert -= SandwichOnInsert;
+		_conn.Db.Sandwich.OnUpdate -= SandwichOnUpdate;
+		_conn.Db.Sandwich.OnDelete -= SandwichOnDelete;
+
+		_conn.Db.Topping.OnInsert -= ToppingOnInsert;
+		_conn.Db.Topping.OnUpdate -= ToppingOnUpdate;
+		_conn.Db.Topping.OnDelete -= ToppingOnDelete;
+
+		_conn = null;
+	}
+
+	private void PlayerOnInsert(EventContext context, Player player)
+	{
+		if (_players.ContainsKey(player.PlayerId))
+		{
+			return;
+		}
+
+		var controller = new PlayerController3D(player);
+		_players.Add(player.PlayerId, controller);
+		AddChild(controller);
+	}
+
+	private void PlayerOnUpdate(EventContext context, Player oldPlayer, Player newPlayer)
+	{
+		if (_players.TryGetValue(newPlayer.PlayerId, out var controller))
+		{
+			controller.ApplyNetworkState(newPlayer);
+			return;
+		}
+
+		PlayerOnInsert(context, newPlayer);
+	}
+
+	private void PlayerOnDelete(EventContext context, Player player)
+	{
+		if (_players.Remove(player.PlayerId, out var controller))
+		{
+			controller.QueueFree();
 		}
 	}
 
-	private void EntityOnDelete(EventContext context, Entity oldEntity)
+	private void SandwichOnInsert(EventContext context, Sandwich sandwich)
 	{
-		if (Entities.Remove(oldEntity.EntityId, out var entityController))
+		if (_sandwiches.ContainsKey(sandwich.Id))
 		{
-			entityController.OnDelete();
+			return;
+		}
+
+		var controller = new SandwichController(sandwich);
+		_sandwiches.Add(sandwich.Id, controller);
+		AddChild(controller);
+	}
+
+	private void SandwichOnUpdate(EventContext context, Sandwich oldSandwich, Sandwich newSandwich)
+	{
+		if (_sandwiches.TryGetValue(newSandwich.Id, out var controller))
+		{
+			controller.ApplyNetworkState(newSandwich);
+			return;
+		}
+
+		SandwichOnInsert(context, newSandwich);
+	}
+
+	private void SandwichOnDelete(EventContext context, Sandwich sandwich)
+	{
+		if (_sandwiches.Remove(sandwich.Id, out var controller))
+		{
+			controller.QueueFree();
 		}
 	}
 
-	private void FoodOnInsert(EventContext context, Food insertedValue)
+	private void ToppingOnInsert(EventContext context, Topping topping)
 	{
-		var entityController = SpawnFood(insertedValue);
-		Entities[insertedValue.EntityId] = entityController;
-	}
-
-	private void PlayerOnInsert(EventContext context, Player insertedPlayer)
-	{
-		GetOrCreatePlayer(insertedPlayer.PlayerId);
-	}
-
-	private void PlayerOnDelete(EventContext context, Player deletedValue)
-	{
-		if (Players.Remove(deletedValue.PlayerId, out var playerController))
+		if (_toppings.ContainsKey(topping.ToppingId))
 		{
-			playerController.QueueFree();
-		}
-	}
-
-	private PlayerController GetOrCreatePlayer(int playerId)
-	{
-		if (!Players.TryGetValue(playerId, out var playerController))
-		{
-			var player = Conn.Db.Player.PlayerId.Find(playerId);
-			playerController = SpawnPlayer(player);
-			Players[playerId] = playerController;
+			return;
 		}
 
-		return playerController;
+		var controller = new ToppingController(topping);
+		_toppings.Add(topping.ToppingId, controller);
+		AddChild(controller);
 	}
 
-	private CircleController SpawnCircle(Circle circle, PlayerController owner)
+	private void ToppingOnUpdate(EventContext context, Topping oldTopping, Topping newTopping)
 	{
-		var entityController = new CircleController(circle, owner)
+		if (_toppings.TryGetValue(newTopping.ToppingId, out var controller))
 		{
-			Name = $"Circle - {circle.EntityId}",
-		};
-		
-		AddChild(entityController);
-		
-		return entityController;
+			controller.ApplyNetworkState(newTopping);
+			return;
+		}
+
+		ToppingOnInsert(context, newTopping);
 	}
 
-	private FoodController SpawnFood(Food food)
+	private void ToppingOnDelete(EventContext context, Topping topping)
 	{
-		var entityController = new FoodController(food)
+		if (_toppings.Remove(topping.ToppingId, out var controller))
 		{
-			Name = $"Food - {food.EntityId}",
-		};
-		
-		AddChild(entityController);
-		
-		return entityController;
-	}
-
-	private PlayerController SpawnPlayer(Player player)
-	{
-		var playerController = new PlayerController(player)
-		{
-			Name = $"Player - {player.Name}"
-		};
-		
-		AddChild(playerController);
-		
-		return playerController;
+			controller.QueueFree();
+		}
 	}
 }

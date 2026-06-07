@@ -15,6 +15,9 @@ public static partial class Module
 {
     private const float TickSeconds = 0.05f;
     private const int SandwichId = 0;
+    private const float PlayerCarryRadius = 2.25f;
+    private const float SandwichCarryHeight = 2.6f;
+    private const float StartRadiusFraction = 0.8f;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
     public partial struct SimulationTimer
@@ -109,7 +112,7 @@ public static partial class Module
             topping_drop_impact_speed = 7f,
         });
 
-        ctx.Db.sandwich.Insert(CreateInitialSandwich());
+        ctx.Db.sandwich.Insert(CreateInitialSandwich(RequireConfig(ctx)));
         SeedToppings(ctx);
 
         ctx.Db.simulation_timer.Insert(new SimulationTimer
@@ -127,24 +130,29 @@ public static partial class Module
             ctx.Db.player.Insert(loggedOut.Value with
             {
                 input_direction = DbVector3.Zero,
-                position = RequireSandwich(ctx).position + loggedOut.Value.attachment_offset,
+                position = ResolvePlayerPosition(
+                    RequireSandwich(ctx),
+                    loggedOut.Value.attachment_offset,
+                    RequireConfig(ctx)
+                ),
             });
             ctx.Db.logged_out_player.identity.Delete(ctx.Sender);
             return;
         }
 
+        var config = RequireConfig(ctx);
         var player = ctx.Db.player.Insert(new Player
         {
             identity = ctx.Sender,
             name = "",
-            position = RequireSandwich(ctx).position,
+            position = ResolvePlayerPosition(RequireSandwich(ctx), DbVector3.Zero, config),
             attachment_offset = DbVector3.Zero,
             input_direction = DbVector3.Zero,
         });
         var attachmentOffset = AttachmentOffset(player.player_id);
         ctx.Db.player.identity.Update(player with
         {
-            position = RequireSandwich(ctx).position + attachmentOffset,
+            position = ResolvePlayerPosition(RequireSandwich(ctx), attachmentOffset, config),
             attachment_offset = attachmentOffset,
         });
     }
@@ -235,14 +243,15 @@ public static partial class Module
             ctx.Db.topping.topping_id.Delete(topping.topping_id);
         }
 
-        ctx.Db.sandwich.id.Update(CreateInitialSandwich());
+        var config = RequireConfig(ctx);
+        ctx.Db.sandwich.id.Update(CreateInitialSandwich(config));
         SeedToppings(ctx);
 
         foreach (var activePlayer in ctx.Db.player.Iter().ToList())
         {
             ctx.Db.player.identity.Update(activePlayer with
             {
-                position = RequireSandwich(ctx).position + activePlayer.attachment_offset,
+                position = ResolvePlayerPosition(RequireSandwich(ctx), activePlayer.attachment_offset, config),
                 input_direction = DbVector3.Zero,
             });
         }
@@ -276,28 +285,31 @@ public static partial class Module
                 }
                 disagreement /= players.Count;
 
-                var targetVelocity = ClampMagnitude(averageInput, 1f) * config.sandwich_speed;
-                sandwich.velocity = DbVector3.Lerp(sandwich.velocity, targetVelocity, 0.35f);
+                var horizontalInput = new DbVector3(averageInput.x, 0f, averageInput.z);
+                var targetVelocity = ClampMagnitude(horizontalInput, 1f) * config.sandwich_speed;
+                sandwich.velocity = DbVector3.Lerp(
+                    new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z),
+                    targetVelocity,
+                    0.35f
+                );
                 sandwich.tilt = Lerp(sandwich.tilt, disagreement * 45f, 0.2f);
             }
             else
             {
                 sandwich.velocity = new DbVector3(
                     sandwich.velocity.x * 0.9f,
-                    sandwich.velocity.y - config.gravity * TickSeconds,
+                    0f,
                     sandwich.velocity.z * 0.9f
                 );
                 sandwich.tilt = Lerp(sandwich.tilt, 0f, 0.1f);
             }
 
-            sandwich.position += sandwich.velocity * TickSeconds;
-            if (sandwich.position.y <= 0f)
-            {
-                impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
-                sandwich.position.y = 0f;
-                sandwich.velocity.y = 0f;
-            }
+            sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             sandwich.position = ClampToWorld(sandwich.position, config);
+            var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
+            impacted = MathF.Abs(targetSandwichHeight - sandwich.position.y) > config.topping_drop_impact_speed * TickSeconds;
+            sandwich.velocity.y = (targetSandwichHeight - sandwich.position.y) / TickSeconds;
+            sandwich.position.y = targetSandwichHeight;
             sandwich.attached_player_count = players.Count;
             sandwich.tick++;
 
@@ -307,7 +319,10 @@ public static partial class Module
                 sandwich.tilt *= 0.45f;
             }
 
-            sandwich.at_summit = DbVector3.Distance(sandwich.position, SummitPosition(config)) <= config.summit_distance;
+            sandwich.at_summit = DbVector3.Distance(
+                sandwich.position,
+                SummitCarryPosition(config)
+            ) <= config.summit_distance;
             if (sandwich.at_summit && AllDeliveryToppingsAttached(ctx))
             {
                 PlaceFinalBread(ctx, sandwich);
@@ -318,7 +333,7 @@ public static partial class Module
         }
 
         ctx.Db.sandwich.id.Update(sandwich);
-        UpdateAttachedPlayerPositions(ctx, sandwich);
+        UpdateAttachedPlayerPositions(ctx, sandwich, config);
         UpdateAttachedToppingPositions(ctx, sandwich);
         UpdateDroppedToppings(ctx, config);
     }
@@ -332,12 +347,20 @@ public static partial class Module
     private static Player RequirePlayer(ReducerContext ctx)
         => ctx.Db.player.identity.Find(ctx.Sender) ?? throw new Exception("Player not found.");
 
-    private static Sandwich CreateInitialSandwich() => new()
+    private static Sandwich CreateInitialSandwich(Config config)
     {
-        id = SandwichId,
-        position = new DbVector3(0f, 1f, 0f),
-        velocity = DbVector3.Zero,
-    };
+        var horizontalPosition = new DbVector3(config.world_radius * StartRadiusFraction, 0f, 0f);
+        return new Sandwich
+        {
+            id = SandwichId,
+            position = horizontalPosition + new DbVector3(
+                0f,
+                TerrainHeight(horizontalPosition, config) + SandwichCarryHeight,
+                0f
+            ),
+            velocity = DbVector3.Zero,
+        };
+    }
 
     private static void SeedToppings(ReducerContext ctx)
     {
@@ -347,7 +370,7 @@ public static partial class Module
         InsertTopping(ctx, "Cheese", 3, new DbVector3(0f, 0.95f, 0f), ToppingState.Attached);
 
         var config = RequireConfig(ctx);
-        InsertTopping(ctx, "Top Bread", 4, DbVector3.Zero, ToppingState.WaitingAtSummit, SummitPosition(config));
+        InsertTopping(ctx, "Top Bread", 4, DbVector3.Zero, ToppingState.WaitingAtSummit, SummitSurfacePosition(config));
     }
 
     private static void InsertTopping(
@@ -431,9 +454,10 @@ public static partial class Module
             velocity.y -= config.gravity * TickSeconds;
 
             var position = topping.position + velocity * TickSeconds;
-            if (position.y <= 0f)
+            var terrainHeight = TerrainHeight(position, config);
+            if (position.y <= terrainHeight)
             {
-                position.y = 0f;
+                position.y = terrainHeight;
                 velocity = DbVector3.Zero;
             }
             position = ClampToWorld(position, config);
@@ -446,25 +470,31 @@ public static partial class Module
         }
     }
 
-    private static void UpdateAttachedPlayerPositions(ReducerContext ctx, Sandwich sandwich)
+    private static void UpdateAttachedPlayerPositions(ReducerContext ctx, Sandwich sandwich, Config config)
     {
         foreach (var player in ctx.Db.player.Iter().ToList())
         {
             ctx.Db.player.identity.Update(player with
             {
-                position = sandwich.position + player.attachment_offset,
+                position = ResolvePlayerPosition(sandwich, player.attachment_offset, config),
             });
         }
     }
 
     private static DbVector3 AttachmentOffset(int index)
     {
-        const float radius = 2.25f;
         var angle = index * 2.3999632f;
-        return new DbVector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
+        return new DbVector3(
+            MathF.Cos(angle) * PlayerCarryRadius,
+            0f,
+            MathF.Sin(angle) * PlayerCarryRadius
+        );
     }
 
-    private static DbVector3 SummitPosition(Config config) => new(0f, config.summit_height, 0f);
+    private static DbVector3 SummitSurfacePosition(Config config) => new(0f, config.summit_height, 0f);
+
+    private static DbVector3 SummitCarryPosition(Config config)
+        => SummitSurfacePosition(config) + new DbVector3(0f, SandwichCarryHeight, 0f);
 
     private static DbVector3 ClampMagnitude(DbVector3 value, float maximum)
     {
@@ -480,15 +510,40 @@ public static partial class Module
     private static DbVector3 ClampToWorld(DbVector3 position, Config config)
     {
         var horizontalMagnitude = MathF.Sqrt(position.x * position.x + position.z * position.z);
-        if (horizontalMagnitude > config.world_radius)
+        var maxSandwichRadius = MathF.Max(0f, config.world_radius - PlayerCarryRadius - 0.5f);
+        if (horizontalMagnitude > maxSandwichRadius)
         {
-            var scale = config.world_radius / horizontalMagnitude;
+            var scale = maxSandwichRadius / horizontalMagnitude;
             position.x *= scale;
             position.z *= scale;
         }
 
-        position.y = Math.Clamp(position.y, 0f, config.summit_height + 10f);
+        position.y = Math.Clamp(position.y, 0f, config.summit_height + SandwichCarryHeight + 10f);
         return position;
+    }
+
+    private static float TerrainHeight(DbVector3 position, Config config)
+    {
+        var horizontalDistance = MathF.Sqrt(position.x * position.x + position.z * position.z);
+        var normalizedDistance = Math.Clamp(horizontalDistance / config.world_radius, 0f, 1f);
+        var heightFactor = 1f - normalizedDistance;
+        return config.summit_height * heightFactor * heightFactor;
+    }
+
+    private static DbVector3 ResolvePlayerPosition(
+        Sandwich sandwich,
+        DbVector3 attachmentOffset,
+        Config config
+    )
+    {
+        var horizontalPosition = new DbVector3(
+            sandwich.position.x + attachmentOffset.x,
+            0f,
+            sandwich.position.z + attachmentOffset.z
+        );
+        horizontalPosition = ClampToWorld(horizontalPosition, config);
+        horizontalPosition.y = TerrainHeight(horizontalPosition, config);
+        return horizontalPosition;
     }
 
     private static void Emit(
