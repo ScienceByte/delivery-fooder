@@ -9,13 +9,10 @@ public partial class GameSessionController : Node
 	public static event Action OnSubscriptionApplied;
 	
 	[Export]    
-	private string ServerUrl { get; set; } = "http://localhost:3000";
+	private string ServerUrl { get; set; } = "https://maincloud.spacetimedb.com";
 	
 	[Export]
 	private string DatabaseName { get; set; } = "food-eater";
-
-	[Export]
-	private string DefaultPlayerName { get; set; } = "3Blave";
 
 	private static GameSessionController Instance { get; set; }
 	public static Identity LocalIdentity { get; private set; }
@@ -100,8 +97,6 @@ private void HandleSubscriptionApplied(SubscriptionEventContext ctx)
 	{
 		GD.Print("Subscription applied!");
 		OnSubscriptionApplied?.Invoke();
-
-		ctx.Reducers.EnterGame(DefaultPlayerName);
 	}
 
 	private static bool IsLocalServerUrl(string serverUrl)

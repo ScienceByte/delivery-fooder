@@ -3,6 +3,8 @@ using SpacetimeDB.Types;
 
 public partial class PlayerController3D : Node3D
 {
+	public const string GroupName = "Players";
+	public const float HeadSupportHeight = 1.45f;
 	private const float PositionInterpolationSpeed = 14f;
 
 	private readonly int _playerId;
@@ -13,11 +15,12 @@ public partial class PlayerController3D : Node3D
 	public string Username { get; private set; }
 	public bool IsLocalPlayer => _isLocalPlayer;
 	public Vector3 AttachmentOffset { get; private set; }
+	public Vector3 HeadSupportPoint => GlobalPosition + Vector3.Up * HeadSupportHeight;
 
 	public PlayerController3D(Player player)
 	{
 		_playerId = player.PlayerId;
-		_isLocalPlayer = player.Identity == GameSessionController.LocalIdentity;
+		_isLocalPlayer = player.Identity.Equals(GameSessionController.LocalIdentity);
 		Username = player.Name;
 		AttachmentOffset = player.AttachmentOffset;
 		_targetPosition = player.Position;
@@ -27,6 +30,7 @@ public partial class PlayerController3D : Node3D
 	public override void _Ready()
 	{
 		Name = $"Player - {Username}";
+		AddToGroup(GroupName);
 		AddPlaceholderVisual();
 	}
 
@@ -54,6 +58,10 @@ public partial class PlayerController3D : Node3D
 
 	private void AddPlaceholderVisual()
 	{
+		var bodyMaterial = new StandardMaterial3D
+		{
+			AlbedoColor = GetPlayerColor(),
+		};
 		var meshInstance = new MeshInstance3D
 		{
 			Name = "PlaceholderMesh",
@@ -63,14 +71,45 @@ public partial class PlayerController3D : Node3D
 				Radius = 0.4f,
 				Height = 1.8f,
 			},
+			MaterialOverride = bodyMaterial,
 		};
 
-		var material = new StandardMaterial3D
+		var faceMarker = new MeshInstance3D
 		{
-			AlbedoColor = IsLocalPlayer ? Colors.DodgerBlue : Colors.Orange,
+			Name = "FrontFaceMarker",
+			Position = new Vector3(0f, 1.15f, -0.36f),
+			Mesh = new SphereMesh
+			{
+				Radius = 0.09f,
+				Height = 0.18f,
+			},
+			MaterialOverride = new StandardMaterial3D
+			{
+				AlbedoColor = Colors.Red,
+			},
 		};
-		meshInstance.MaterialOverride = material;
 
 		AddChild(meshInstance);
+		AddChild(faceMarker);
+	}
+
+	private Color GetPlayerColor()
+	{
+		return ParsePlayerSlot(Username) switch
+		{
+			var slot when slot >= 0 && slot % 2 == 0 => Colors.Goldenrod,
+			var slot when slot >= 0 => Colors.DodgerBlue,
+			_ => Colors.LightGray,
+		};
+	}
+
+	private static int ParsePlayerSlot(string username)
+	{
+		if (string.IsNullOrWhiteSpace(username) || !username.StartsWith("Player "))
+		{
+			return -1;
+		}
+
+		return int.TryParse(username[7..], out var index) ? index - 1 : -1;
 	}
 }
