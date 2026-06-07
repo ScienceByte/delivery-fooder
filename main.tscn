@@ -301,6 +301,31 @@ script = ExtResource("3_camera")
 [node name="GameEvents" type="CanvasLayer" parent="." unique_id=579995842]
 script = ExtResource("5_events")
 
+[node name="ControlsHint" type="Label" parent="GameEvents" unique_id=2147483647]
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 0.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -52.0
+offset_right = 760.0
+offset_bottom = -16.0
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+text = "WASD to move, hold right click to move camera, Space to jump, and i+o to restart"
+
+[node name="ObjectiveText" type="Label" parent="GameEvents" unique_id=2147483646]
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -640.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 56.0
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+text = "get to the end without lossing any toppings"
+
 [node name="Node3D" type="Node3D" parent="." unique_id=1200440450]
 
 [node name="TerrainSource" type="MeshInstance3D" parent="." unique_id=198026916 groups=["terrain_export"]]

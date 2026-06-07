@@ -16,7 +16,8 @@ public static partial class Module
     private const float TickSeconds = 0.05f;
     private const int SandwichId = 0;
     private const float PitfallFloorY = -40f;
-    private static readonly DbVector3 SummitTargetPosition = new(151.7f, 0f, 0f);
+    private static readonly DbVector3 StartTargetPosition = new(151.7f, 0f, 0f);
+    private static readonly DbVector3 SummitTargetPosition = new(1f, 0f, 0f);
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
     private const float PlayerHeadSupportHeight = 1.45f;
@@ -633,7 +634,7 @@ public static partial class Module
 
     private static Sandwich CreateInitialSandwich(Config config)
     {
-        var horizontalPosition = new DbVector3(1f, 0f, 0f);
+        var horizontalPosition = StartTargetPosition;
         var bottomBread = ToppingShapeData.GetProfile("BottomBread");
         return new Sandwich
         {

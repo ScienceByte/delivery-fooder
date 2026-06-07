@@ -6,6 +6,7 @@ public partial class ToppingController : Node3D
 {
 	private const float PositionInterpolationSpeed = 14f;
 	private const float RotationInterpolationSpeed = 12f;
+	private const float ToppingYawOffsetRadians = Mathf.Pi * 0.5f;
 	private const string PrototypeRootName = "ToppingProfilesSource";
 
 	private readonly int _toppingId;
@@ -164,12 +165,12 @@ public partial class ToppingController : Node3D
 	{
 		if (!IsBread(ToppingName))
 		{
-			return Vector3.Zero;
+			return new Vector3(0f, ToppingYawOffsetRadians, 0f);
 		}
 
 		var profile = ToppingShapeData.GetProfile(ToppingName);
 		return profile.HalfWidth >= profile.HalfDepth
-			? new Vector3(0f, Mathf.Pi * 0.5f, 0f)
+			? new Vector3(0f, ToppingYawOffsetRadians, 0f)
 			: Vector3.Zero;
 	}
 

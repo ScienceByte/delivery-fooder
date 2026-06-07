@@ -4,6 +4,7 @@ public partial class LooseItemController : Node3D
 {
 	private readonly LooseItemDefinition _definition;
 	private readonly Node3D _prototype;
+	private StaticBody3D _collisionBody;
 
 	public LooseItemController(LooseItemDefinition definition, Node3D prototype)
 	{
@@ -17,6 +18,7 @@ public partial class LooseItemController : Node3D
 		Position = new Vector3(_definition.PositionX, _definition.PositionY, _definition.PositionZ);
 		RotationDegrees = new Vector3(_definition.RotationX, _definition.RotationY, _definition.RotationZ);
 		Scale = new Vector3(_definition.ScaleX, _definition.ScaleY, _definition.ScaleZ);
+		AddCollisionBody();
 
 		if (_prototype != null)
 		{
@@ -50,6 +52,30 @@ public partial class LooseItemController : Node3D
 				AlbedoColor = Colors.SlateGray,
 			},
 		});
+	}
+
+	private void AddCollisionBody()
+	{
+		var size = new Vector3(
+			Mathf.Max(0.1f, _definition.HalfWidth * 2f),
+			Mathf.Max(0.1f, _definition.Thickness),
+			Mathf.Max(0.1f, _definition.HalfDepth * 2f)
+		);
+
+		_collisionBody = new StaticBody3D
+		{
+			Name = "CollisionBody",
+		};
+		_collisionBody.AddChild(new CollisionShape3D
+		{
+			Name = "CollisionShape",
+			Shape = new BoxShape3D
+			{
+				Size = size,
+			},
+			Position = new Vector3(0f, (_definition.MinY + _definition.MaxY) * 0.5f, 0f),
+		});
+		AddChild(_collisionBody);
 	}
 
 	private static void SetVisualsVisible(Node node, bool visible)
