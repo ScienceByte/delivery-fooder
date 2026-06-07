@@ -191,8 +191,11 @@ public static partial class Module
         var loggedOut = ctx.Db.logged_out_player.identity.Find(ctx.Sender);
         if (loggedOut is not null)
         {
+            var slotIndex = DetermineReconnectSlot(ctx, loggedOut.Value);
+            var assignedName = AssignedPlayerName(slotIndex);
             ctx.Db.player.Insert(loggedOut.Value with
             {
+                name = assignedName,
                 input_direction = DbVector3.Zero,
                 jump_queued = false,
                 position = ResolvePlayerPosition(
@@ -211,20 +214,17 @@ public static partial class Module
         }
 
         var config = RequireConfig(ctx);
-        var player = ctx.Db.player.Insert(new Player
+        var newSlotIndex = NextAvailablePlayerSlot(ctx);
+        var newAssignedName = AssignedPlayerName(newSlotIndex);
+        var attachmentOffset = AttachmentOffset(newSlotIndex);
+        ctx.Db.player.Insert(new Player
         {
             identity = ctx.Sender,
-            name = "",
-            position = ResolvePlayerPosition(RequireSandwich(ctx), DbVector3.Zero, config),
-            attachment_offset = DbVector3.Zero,
-            input_direction = DbVector3.Zero,
-            jump_queued = false,
-        });
-        var attachmentOffset = AttachmentOffset(player.player_id);
-        ctx.Db.player.identity.Update(player with
-        {
+            name = newAssignedName,
             position = ResolvePlayerPosition(RequireSandwich(ctx), attachmentOffset, config),
             attachment_offset = attachmentOffset,
+            input_direction = DbVector3.Zero,
+            jump_queued = false,
         });
         ctx.Db.player_motion.Insert(new PlayerMotion
         {
@@ -250,13 +250,11 @@ public static partial class Module
     public static void EnterGame(ReducerContext ctx, string name)
     {
         var player = RequirePlayer(ctx);
-        var cleanName = name.Trim();
-        if (cleanName.Length is < 1 or > 24)
-        {
-            throw new Exception("Player name must contain between 1 and 24 characters.");
-        }
+        var assignedName = string.IsNullOrWhiteSpace(player.name)
+            ? AssignedPlayerName(NextAvailablePlayerSlot(ctx, player.identity))
+            : player.name;
 
-        ctx.Db.player.identity.Update(player with { name = cleanName });
+        ctx.Db.player.identity.Update(player with { name = assignedName });
     }
 
     [Reducer]
@@ -770,6 +768,78 @@ public static partial class Module
             0f,
             MathF.Sin(angle) * PlayerCarryRadius
         );
+    }
+
+    private static string AssignedPlayerName(int slotIndex) => $"Player {slotIndex + 1}";
+
+    private static int DetermineReconnectSlot(ReducerContext ctx, Player player)
+    {
+        var existingSlot = ParseAssignedPlayerSlot(player.name);
+        if (existingSlot >= 0 && !IsPlayerSlotOccupied(ctx, existingSlot, player.identity))
+        {
+            return existingSlot;
+        }
+
+        return NextAvailablePlayerSlot(ctx, player.identity);
+    }
+
+    private static int NextAvailablePlayerSlot(ReducerContext ctx, Identity? excludedIdentity = null)
+    {
+        for (var slotIndex = 0; slotIndex < 32; slotIndex++)
+        {
+            if (!IsPlayerSlotOccupied(ctx, slotIndex, excludedIdentity))
+            {
+                return slotIndex;
+            }
+        }
+
+        return 32;
+    }
+
+    private static bool IsPlayerSlotOccupied(ReducerContext ctx, int slotIndex, Identity? excludedIdentity = null)
+    {
+        foreach (var player in ctx.Db.player.Iter())
+        {
+            if (excludedIdentity is not null && player.identity == excludedIdentity.Value)
+            {
+                continue;
+            }
+
+            if (ParseAssignedPlayerSlot(player.name) == slotIndex)
+            {
+                return true;
+            }
+        }
+
+        foreach (var player in ctx.Db.logged_out_player.Iter())
+        {
+            if (excludedIdentity is not null && player.identity == excludedIdentity.Value)
+            {
+                continue;
+            }
+
+            if (ParseAssignedPlayerSlot(player.name) == slotIndex)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int ParseAssignedPlayerSlot(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !name.StartsWith("Player ", StringComparison.OrdinalIgnoreCase))
+        {
+            return -1;
+        }
+
+        if (!int.TryParse(name[7..], out var humanIndex) || humanIndex < 1)
+        {
+            return -1;
+        }
+
+        return humanIndex - 1;
     }
 
     private static DbVector3 ClampMagnitude(DbVector3 value, float maximum)

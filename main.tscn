@@ -161,7 +161,7 @@ script = ExtResource("5_events")
 
 [node name="Node3D" type="Node3D" parent="." unique_id=1200440450]
 
-[node name="TerrainSource" type="MeshInstance3D" parent="." unique_id=198026916]
+[node name="TerrainSource" type="MeshInstance3D" parent="." unique_id=198026916 groups=["terrain_export"]]
 transform = Transform3D(15, 0, 0, 0, 15, 0, 0, 0, 15, 0, 0, 0)
 mesh = SubResource("ArrayMesh_272bh")
 
@@ -185,7 +185,7 @@ mesh = SubResource("ArrayMesh_5vw27")
 transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, 4.9421725, 0.3713965, 0)
 mesh = SubResource("ArrayMesh_5vw27")
 
-[node name="Node3D" type="Node3D" parent="TerrainSource" unique_id=377028330]
+[node name="Node3D" type="Node3D" parent="TerrainSource" unique_id=377028330 groups=["terrain_export"]]
 transform = Transform3D(-0.9999999, 0, -8.742276e-08, 0, 0.9999999, 0, 8.742276e-08, 0, -0.9999999, 11.248305, 0, 0)
 
 [node name="RoadCrossing2" type="MeshInstance3D" parent="TerrainSource/Node3D" unique_id=1034815498]
@@ -208,19 +208,19 @@ mesh = SubResource("ArrayMesh_5vw27")
 transform = Transform3D(0.9999996, 0, 0, 0, 0.9999996, 0, 0, 0, 0.9999996, 4.9421725, 0.37139648, 0)
 mesh = SubResource("ArrayMesh_5vw27")
 
-[node name="SkyCrapers" parent="TerrainSource" unique_id=134857818 instance=ExtResource("8_5vw27")]
+[node name="SkyCrapers" parent="TerrainSource" unique_id=134857818 groups=["terrain_ignore"] instance=ExtResource("8_5vw27")]
 transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 14.489693, -2.1958547, -6.3846846)
 
-[node name="SkyCrapers2" parent="TerrainSource" unique_id=772699283 instance=ExtResource("8_5vw27")]
-transform = Transform3D(-0.18883833, 0, -0.9820078, 0, 0.99999964, 0, 0.9820078, 0, -0.18883833, 14.489693, -2.1958547, 10.259742)
+[node name="SkyCrapers2" parent="TerrainSource/SkyCrapers" unique_id=772699283 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883836, 0, -0.982008, 0, 0.99999976, 0, 0.982008, 0, -0.18883836, 0, 0, 16.64443)
 
-[node name="SkyCrapers3" parent="TerrainSource" unique_id=1182403496 instance=ExtResource("8_5vw27")]
-transform = Transform3D(-0.18883833, 0, -0.98200774, 0, 0.9999996, 0, 0.98200774, 0, -0.18883833, -5.088002, -2.1958547, 10.259742)
+[node name="SkyCrapers3" parent="TerrainSource/SkyCrapers" unique_id=1182403496 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883836, 0, -0.98200786, 0, 0.9999997, 0, 0.98200786, 0, -0.18883836, -19.577698, 0, 16.64443)
 
-[node name="SkyCrapers4" parent="TerrainSource" unique_id=1858036692 instance=ExtResource("8_5vw27")]
-transform = Transform3D(-0.18883833, 0, -0.9820077, 0, 0.9999995, 0, 0.9820077, 0, -0.18883833, -5.0880017, -2.1958547, -6.9999804)
+[node name="SkyCrapers4" parent="TerrainSource/SkyCrapers" unique_id=1858036692 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883836, 0, -0.9820078, 0, 0.99999964, 0, 0.9820078, 0, -0.18883836, -19.577698, 0, -0.6152959)
 
-[node name="SkyCrapers4" parent="TerrainSource/SkyCrapers4" unique_id=313814724 instance=ExtResource("8_5vw27")]
+[node name="SkyCrapers4" parent="TerrainSource/SkyCrapers/SkyCrapers4" unique_id=313814724 instance=ExtResource("8_5vw27")]
 transform = Transform3D(-0.9364455, 0, -0.35081202, 0, 0.9999995, 0, 0.35081202, 0, -0.9364455, 0.10742712, -1.9992521, -7.999053)
 
 [node name="TerrainSourceHighwayToHell" type="MeshInstance3D" parent="." unique_id=637386555]

@@ -3,6 +3,7 @@ using SpacetimeDB.Types;
 
 public partial class PlayerController3D : Node3D
 {
+	public const string GroupName = "Players";
 	private const float PositionInterpolationSpeed = 14f;
 
 	private readonly int _playerId;
@@ -17,7 +18,7 @@ public partial class PlayerController3D : Node3D
 	public PlayerController3D(Player player)
 	{
 		_playerId = player.PlayerId;
-		_isLocalPlayer = player.Identity == GameSessionController.LocalIdentity;
+		_isLocalPlayer = player.Identity.Equals(GameSessionController.LocalIdentity);
 		Username = player.Name;
 		AttachmentOffset = player.AttachmentOffset;
 		_targetPosition = player.Position;
@@ -27,6 +28,7 @@ public partial class PlayerController3D : Node3D
 	public override void _Ready()
 	{
 		Name = $"Player - {Username}";
+		AddToGroup(GroupName);
 		AddPlaceholderVisual();
 	}
 
@@ -56,7 +58,7 @@ public partial class PlayerController3D : Node3D
 	{
 		var bodyMaterial = new StandardMaterial3D
 		{
-			AlbedoColor = IsLocalPlayer ? Colors.DodgerBlue : Colors.Orange,
+			AlbedoColor = GetPlayerColor(),
 		};
 		var meshInstance = new MeshInstance3D
 		{
@@ -87,5 +89,25 @@ public partial class PlayerController3D : Node3D
 
 		AddChild(meshInstance);
 		AddChild(faceMarker);
+	}
+
+	private Color GetPlayerColor()
+	{
+		return ParsePlayerSlot(Username) switch
+		{
+			0 => Colors.Orange,
+			1 => Colors.DodgerBlue,
+			_ => Colors.LightGray,
+		};
+	}
+
+	private static int ParsePlayerSlot(string username)
+	{
+		if (string.IsNullOrWhiteSpace(username) || !username.StartsWith("Player "))
+		{
+			return -1;
+		}
+
+		return int.TryParse(username[7..], out var index) ? index - 1 : -1;
 	}
 }

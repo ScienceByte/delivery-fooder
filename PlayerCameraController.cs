@@ -12,7 +12,7 @@ public partial class PlayerCameraController : Node3D
 	private const float MinPitch = -1.2f;
 	private const float MaxPitch = -0.2f;
 
-	private SandwichController _target;
+	private Node3D _target;
 	private Camera3D _camera;
 	private float _yaw = 0.35f;
 	private float _pitch = -0.55f;
@@ -69,6 +69,11 @@ public partial class PlayerCameraController : Node3D
 
 	public override void _Process(double delta)
 	{
+		if (!IsInstanceValid(_target) || _target is not PlayerController3D)
+		{
+			_target = FindLocalPlayer();
+		}
+
 		if (!IsInstanceValid(_target))
 		{
 			_target = FindSandwich();
@@ -79,12 +84,13 @@ public partial class PlayerCameraController : Node3D
 			return;
 		}
 
+		var focusPoint = GetTargetFocusPoint(_target);
 		var orbitBasis = Basis.FromEuler(new Vector3(_pitch, _yaw, 0f));
 		var desiredOffset = orbitBasis * new Vector3(0f, 0f, _distance);
-		var desiredPosition = _target.GlobalPosition + desiredOffset;
+		var desiredPosition = focusPoint + desiredOffset;
 		var weight = 1f - Mathf.Exp(-FollowSpeed * (float)delta);
 		GlobalPosition = GlobalPosition.Lerp(desiredPosition, weight);
-		LookAt(_target.GlobalPosition + Vector3.Up, Vector3.Up);
+		LookAt(focusPoint, Vector3.Up);
 	}
 
 	private SandwichController FindSandwich()
@@ -98,6 +104,29 @@ public partial class PlayerCameraController : Node3D
 		}
 
 		return null;
+	}
+
+	private PlayerController3D FindLocalPlayer()
+	{
+		foreach (var node in GetTree().GetNodesInGroup(PlayerController3D.GroupName))
+		{
+			if (node is PlayerController3D player && player.IsLocalPlayer)
+			{
+				return player;
+			}
+		}
+
+		return null;
+	}
+
+	private static Vector3 GetTargetFocusPoint(Node3D target)
+	{
+		if (target is PlayerController3D)
+		{
+			return target.GlobalPosition + Vector3.Up * 1.2f;
+		}
+
+		return target.GlobalPosition + Vector3.Up;
 	}
 
 	public Vector3 GetFlattenedForward()

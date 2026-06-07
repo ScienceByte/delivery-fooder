@@ -10,6 +10,10 @@ public partial class TerrainExporter : EditorScript
 	private const string TerrainNodeName = "TerrainSource";
 	private const string OutputPath = "res://Shared/TerrainHeightData.generated.cs";
 	private const int OutputResolution = 65;
+	private const string IncludeGroupName = "terrain_export";
+	private const string ExcludeGroupName = "terrain_ignore";
+	private const string IncludeMetaName = "terrain_export";
+	private const string ExcludeMetaName = "terrain_ignore";
 
 	public override void _Run()
 	{
@@ -142,6 +146,64 @@ public partial class TerrainExporter : EditorScript
 			y = A.Y * w1 + B.Y * w2 + C.Y * w3;
 			return true;
 		}
+
+		public bool TrySampleNearestHeight(float x, float z, out float y, out float distanceSquared)
+		{
+			if (TrySampleHeight(x, z, out y))
+			{
+				distanceSquared = 0f;
+				return true;
+			}
+
+			var point = new Vector2(x, z);
+			var found = false;
+			var bestDistanceSquared = float.MaxValue;
+			var bestHeight = 0f;
+
+			TrySampleNearestPointOnEdge(point, A, B, ref found, ref bestDistanceSquared, ref bestHeight);
+			TrySampleNearestPointOnEdge(point, B, C, ref found, ref bestDistanceSquared, ref bestHeight);
+			TrySampleNearestPointOnEdge(point, C, A, ref found, ref bestDistanceSquared, ref bestHeight);
+
+			y = bestHeight;
+			distanceSquared = bestDistanceSquared;
+			return found;
+		}
+
+		private static void TrySampleNearestPointOnEdge(
+			Vector2 point,
+			Vector3 start,
+			Vector3 end,
+			ref bool found,
+			ref float bestDistanceSquared,
+			ref float bestHeight
+		)
+		{
+			var start2 = new Vector2(start.X, start.Z);
+			var end2 = new Vector2(end.X, end.Z);
+			var edge = end2 - start2;
+			var edgeLengthSquared = edge.LengthSquared();
+
+			float t;
+			if (edgeLengthSquared < 0.000001f)
+			{
+				t = 0f;
+			}
+			else
+			{
+				t = Mathf.Clamp((point - start2).Dot(edge) / edgeLengthSquared, 0f, 1f);
+			}
+
+			var closestPoint = start2 + edge * t;
+			var distanceSquared = point.DistanceSquaredTo(closestPoint);
+			if (found && distanceSquared >= bestDistanceSquared)
+			{
+				return;
+			}
+
+			found = true;
+			bestDistanceSquared = distanceSquared;
+			bestHeight = Mathf.Lerp(start.Y, end.Y, t);
+		}
 	}
 
 	private sealed class TerrainGeometry
@@ -160,8 +222,10 @@ public partial class TerrainExporter : EditorScript
 		public static TerrainGeometry FromRoot(Node3D terrainRoot)
 		{
 			var triangleList = new System.Collections.Generic.List<Triangle>();
-			var meshNodes = new System.Collections.Generic.List<MeshInstance3D>();
-			CollectMeshNodes(terrainRoot, meshNodes);
+			var allMeshNodes = new System.Collections.Generic.List<MeshInstance3D>();
+			CollectMeshNodes(terrainRoot, allMeshNodes);
+			var useExplicitInclude = allMeshNodes.Exists(IsExplicitlyIncluded);
+			var meshNodes = allMeshNodes.FindAll(meshNode => ShouldUseMesh(meshNode, useExplicitInclude));
 			var meshCount = 0;
 			var hasBounds = false;
 			var min = Vector3.Zero;
@@ -254,6 +318,46 @@ public partial class TerrainExporter : EditorScript
 			}
 		}
 
+		private static bool ShouldUseMesh(MeshInstance3D meshNode, bool useExplicitInclude)
+		{
+			if (HasTaggedAncestor(meshNode, ExcludeGroupName, ExcludeMetaName))
+			{
+				return false;
+			}
+
+			if (!useExplicitInclude)
+			{
+				return true;
+			}
+
+			return HasTaggedAncestor(meshNode, IncludeGroupName, IncludeMetaName);
+		}
+
+		private static bool IsExplicitlyIncluded(MeshInstance3D meshNode)
+			=> HasTaggedAncestor(meshNode, IncludeGroupName, IncludeMetaName);
+
+		private static bool HasTaggedAncestor(Node node, string groupName, string metaName)
+		{
+			for (Node current = node; current != null; current = current.GetParent())
+			{
+				if (current.IsInGroup(groupName))
+				{
+					return true;
+				}
+
+				if (current.HasMeta(metaName))
+				{
+					var value = current.GetMeta(metaName);
+					if (value.VariantType == Variant.Type.Bool && value.AsBool())
+					{
+						return true;
+					}
+				}
+			}
+
+			return false;
+		}
+
 		public float SampleHeight(float x, float z)
 		{
 			if (!TrySampleHeight(x, z, out var height))
@@ -294,7 +398,39 @@ public partial class TerrainExporter : EditorScript
 				}
 			}
 
+			if (TrySampleNearestHeight(x, z, out var nearestHeight))
+			{
+				return nearestHeight;
+			}
+
 			throw new InvalidOperationException($"No terrain height found near ({x}, {z}).");
+		}
+
+		private bool TrySampleNearestHeight(float x, float z, out float height)
+		{
+			var found = false;
+			var bestDistanceSquared = float.MaxValue;
+			var bestHeight = 0f;
+
+			foreach (var triangle in _triangles)
+			{
+				if (!triangle.TrySampleNearestHeight(x, z, out var triangleHeight, out var distanceSquared))
+				{
+					continue;
+				}
+
+				if (found && distanceSquared >= bestDistanceSquared)
+				{
+					continue;
+				}
+
+				found = true;
+				bestDistanceSquared = distanceSquared;
+				bestHeight = triangleHeight;
+			}
+
+			height = bestHeight;
+			return found;
 		}
 
 		private bool TrySampleHeight(float x, float z, out float height)
