@@ -18,6 +18,7 @@ public static partial class Module
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
     private const float StartRadiusFraction = 0.8f;
+    private const float GroundedHeightTolerance = 0.05f;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
     public partial struct SimulationTimer
@@ -40,6 +41,7 @@ public static partial class Module
         public float summit_distance;
         public float topping_drop_tilt;
         public float topping_drop_impact_speed;
+        public float jump_impulse;
     }
 
     [Table(Accessor = "player", Public = true)]
@@ -56,6 +58,7 @@ public static partial class Module
         public DbVector3 position;
         public DbVector3 attachment_offset;
         public DbVector3 input_direction;
+        public bool jump_queued;
     }
 
     [Table(Accessor = "sandwich", Public = true)]
@@ -110,6 +113,7 @@ public static partial class Module
             summit_distance = 4f,
             topping_drop_tilt = 32f,
             topping_drop_impact_speed = 7f,
+            jump_impulse = 8.5f,
         });
 
         ctx.Db.sandwich.Insert(CreateInitialSandwich(RequireConfig(ctx)));
@@ -130,6 +134,7 @@ public static partial class Module
             ctx.Db.player.Insert(loggedOut.Value with
             {
                 input_direction = DbVector3.Zero,
+                jump_queued = false,
                 position = ResolvePlayerPosition(
                     RequireSandwich(ctx),
                     loggedOut.Value.attachment_offset,
@@ -148,6 +153,7 @@ public static partial class Module
             position = ResolvePlayerPosition(RequireSandwich(ctx), DbVector3.Zero, config),
             attachment_offset = DbVector3.Zero,
             input_direction = DbVector3.Zero,
+            jump_queued = false,
         });
         var attachmentOffset = AttachmentOffset(player.player_id);
         ctx.Db.player.identity.Update(player with
@@ -164,6 +170,7 @@ public static partial class Module
         ctx.Db.logged_out_player.Insert(player with
         {
             input_direction = DbVector3.Zero,
+            jump_queued = false,
         });
         ctx.Db.player.identity.Delete(ctx.Sender);
     }
@@ -182,7 +189,7 @@ public static partial class Module
     }
 
     [Reducer]
-    public static void UpdatePlayerInput(ReducerContext ctx, DbVector3 direction)
+    public static void UpdatePlayerInput(ReducerContext ctx, DbVector3 direction, bool jumpRequested)
     {
         var player = RequirePlayer(ctx);
         if (!IsFinite(direction))
@@ -193,6 +200,7 @@ public static partial class Module
         ctx.Db.player.identity.Update(player with
         {
             input_direction = ClampMagnitude(direction, 1f),
+            jump_queued = player.jump_queued || jumpRequested,
         });
     }
 
@@ -253,6 +261,7 @@ public static partial class Module
             {
                 position = ResolvePlayerPosition(RequireSandwich(ctx), activePlayer.attachment_offset, config),
                 input_direction = DbVector3.Zero,
+                jump_queued = false,
             });
         }
 
@@ -269,6 +278,9 @@ public static partial class Module
 
         if (!sandwich.completed)
         {
+            var previousGroundHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
+            var wasGrounded = sandwich.position.y <= previousGroundHeight + GroundedHeightTolerance;
+
             if (players.Count > 0)
             {
                 var averageInput = DbVector3.Zero;
@@ -298,7 +310,7 @@ public static partial class Module
             {
                 sandwich.velocity = new DbVector3(
                     sandwich.velocity.x * 0.9f,
-                    0f,
+                    sandwich.velocity.y,
                     sandwich.velocity.z * 0.9f
                 );
                 sandwich.tilt = Lerp(sandwich.tilt, 0f, 0.1f);
@@ -307,9 +319,31 @@ public static partial class Module
             sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             sandwich.position = ClampToWorld(sandwich.position, config);
             var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
-            impacted = MathF.Abs(targetSandwichHeight - sandwich.position.y) > config.topping_drop_impact_speed * TickSeconds;
-            sandwich.velocity.y = (targetSandwichHeight - sandwich.position.y) / TickSeconds;
-            sandwich.position.y = targetSandwichHeight;
+            var jumpRequested = players.Any(player => player.jump_queued);
+
+            if (jumpRequested && wasGrounded)
+            {
+                sandwich.velocity.y = config.jump_impulse;
+            }
+
+            if (wasGrounded && !jumpRequested)
+            {
+                sandwich.position.y = targetSandwichHeight;
+                sandwich.velocity.y = 0f;
+            }
+            else
+            {
+                sandwich.velocity.y -= config.gravity * TickSeconds;
+                sandwich.position.y += sandwich.velocity.y * TickSeconds;
+
+                if (sandwich.position.y <= targetSandwichHeight)
+                {
+                    impacted = sandwich.velocity.y < -config.topping_drop_impact_speed;
+                    sandwich.position.y = targetSandwichHeight;
+                    sandwich.velocity.y = 0f;
+                }
+            }
+
             sandwich.attached_player_count = players.Count;
             sandwich.tick++;
 
@@ -332,6 +366,7 @@ public static partial class Module
             }
         }
 
+        ClearJumpQueues(ctx, players);
         ctx.Db.sandwich.id.Update(sandwich);
         UpdateAttachedPlayerPositions(ctx, sandwich, config);
         UpdateAttachedToppingPositions(ctx, sandwich);
@@ -470,6 +505,14 @@ public static partial class Module
         }
     }
 
+    private static void ClearJumpQueues(ReducerContext ctx, System.Collections.Generic.List<Player> players)
+    {
+        foreach (var player in players.Where(player => player.jump_queued))
+        {
+            ctx.Db.player.identity.Update(player with { jump_queued = false });
+        }
+    }
+
     private static void UpdateAttachedPlayerPositions(ReducerContext ctx, Sandwich sandwich, Config config)
     {
         foreach (var player in ctx.Db.player.Iter().ToList())
@@ -542,7 +585,9 @@ public static partial class Module
             sandwich.position.z + attachmentOffset.z
         );
         horizontalPosition = ClampToWorld(horizontalPosition, config);
-        horizontalPosition.y = TerrainHeight(horizontalPosition, config);
+        var sandwichGroundHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
+        var airborneOffset = MathF.Max(0f, sandwich.position.y - sandwichGroundHeight);
+        horizontalPosition.y = TerrainHeight(horizontalPosition, config) + airborneOffset;
         return horizontalPosition;
     }
 
