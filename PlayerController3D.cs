@@ -54,6 +54,10 @@ public partial class PlayerController3D : Node3D
 
 	private void AddPlaceholderVisual()
 	{
+		var bodyMaterial = new StandardMaterial3D
+		{
+			AlbedoColor = IsLocalPlayer ? Colors.DodgerBlue : Colors.Orange,
+		};
 		var meshInstance = new MeshInstance3D
 		{
 			Name = "PlaceholderMesh",
@@ -63,14 +67,25 @@ public partial class PlayerController3D : Node3D
 				Radius = 0.4f,
 				Height = 1.8f,
 			},
+			MaterialOverride = bodyMaterial,
 		};
 
-		var material = new StandardMaterial3D
+		var faceMarker = new MeshInstance3D
 		{
-			AlbedoColor = IsLocalPlayer ? Colors.DodgerBlue : Colors.Orange,
+			Name = "FrontFaceMarker",
+			Position = new Vector3(0f, 1.15f, -0.36f),
+			Mesh = new SphereMesh
+			{
+				Radius = 0.09f,
+				Height = 0.18f,
+			},
+			MaterialOverride = new StandardMaterial3D
+			{
+				AlbedoColor = Colors.Red,
+			},
 		};
-		meshInstance.MaterialOverride = material;
 
 		AddChild(meshInstance);
+		AddChild(faceMarker);
 	}
 }

@@ -38,6 +38,7 @@ public static partial class Module
     private const float ToppingAngularAccelerationFactor = 0.09f;
     private const float ToppingSlideBoundary = 1.1f;
     private const float ImpactSlideImpulse = 2.8f;
+    private const float PlayerOrbitRotationSpeed = 95f;
     private const uint InitialShuffleSeed = 0xA53C9E2Du;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
@@ -116,6 +117,7 @@ public static partial class Module
         public float tilt;
         public float pitch;
         public float roll;
+        public float yaw;
         public int attached_player_count;
         public bool at_summit;
         public bool completed;
@@ -365,28 +367,40 @@ public static partial class Module
             var jumpRoll = 0f;
             if (players.Count > 0)
             {
-                var averageInput = DbVector3.Zero;
+                var averageTranslationInput = DbVector3.Zero;
+                var averageOrbitInput = 0f;
                 foreach (var player in players)
                 {
-                    averageInput += player.input_direction;
+                    var horizontalInput = new DbVector3(player.input_direction.x, 0f, player.input_direction.z);
+                    var flatOffset = RotateFlat(player.attachment_offset, sandwich.yaw);
+                    var tangent = TangentFromOffset(flatOffset);
+                    var orbitInput = DotFlat(horizontalInput, tangent);
+                    averageOrbitInput += orbitInput;
+                    averageTranslationInput += horizontalInput;
                 }
-                averageInput /= players.Count;
+                averageTranslationInput /= players.Count;
+                averageOrbitInput /= players.Count;
 
                 var disagreement = 0f;
                 foreach (var player in players)
                 {
-                    disagreement += DbVector3.Distance(player.input_direction, averageInput);
+                    disagreement += DbVector3.Distance(player.input_direction, averageTranslationInput);
                 }
                 disagreement /= players.Count;
 
-                var horizontalInput = new DbVector3(averageInput.x, 0f, averageInput.z);
-                var targetVelocity = ClampMagnitude(horizontalInput, 1f) * config.sandwich_speed;
+                var targetVelocity = ClampMagnitude(averageTranslationInput, 1f) * config.sandwich_speed;
                 sandwich.velocity = DbVector3.Lerp(
                     new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z),
                     targetVelocity,
                     0.35f
                 );
                 disagreementTilt = disagreement * 45f;
+
+                sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
+                if (MathF.Abs(averageOrbitInput) > 0.001f)
+                {
+                    sandwich.yaw = NormalizeDegrees(sandwich.yaw + averageOrbitInput * PlayerOrbitRotationSpeed * TickSeconds);
+                }
             }
             else
             {
@@ -396,9 +410,9 @@ public static partial class Module
                     sandwich.velocity.z * 0.9f
                 );
                 disagreementTilt = 0f;
+                sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             }
 
-            sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             sandwich.position = ClampToTerrainBounds(sandwich.position, config);
             var playerStates = SimulatePlayers(ctx, players, sandwich, config);
             var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
@@ -432,10 +446,11 @@ public static partial class Module
             }
 
             var loadCenter = AttachedToppingLoadCenter(ctx);
+            var localVelocity = InverseRotateFlat(sandwich.velocity, sandwich.yaw);
             var movementPitchTorque =
-                -sandwich.velocity.z / MathF.Max(config.sandwich_speed, 0.001f) * MovementPitchTorqueFactor;
+                -localVelocity.z / MathF.Max(config.sandwich_speed, 0.001f) * MovementPitchTorqueFactor;
             var movementRollTorque =
-                sandwich.velocity.x / MathF.Max(config.sandwich_speed, 0.001f) * MovementRollTorqueFactor;
+                localVelocity.x / MathF.Max(config.sandwich_speed, 0.001f) * MovementRollTorqueFactor;
             var jumpPitchTorque = -jumpPitch * JumpPitchTorqueFactor;
             var jumpRollTorque = jumpRoll * JumpRollTorqueFactor;
             var loadPitchTorque = -loadCenter.z * LoadPitchTorqueFactor;
@@ -528,6 +543,7 @@ public static partial class Module
                 0f
             ),
             velocity = DbVector3.Zero,
+            yaw = 0f,
         };
     }
 
@@ -696,10 +712,11 @@ public static partial class Module
         foreach (var player in players)
         {
             var motion = RequirePlayerMotion(ctx, player.identity);
+            var rotatedAttachmentOffset = RotateFlat(player.attachment_offset, sandwich.yaw);
             var nextHorizontalPosition = new DbVector3(
-                sandwich.position.x + player.attachment_offset.x,
+                sandwich.position.x + rotatedAttachmentOffset.x,
                 0f,
-                sandwich.position.z + player.attachment_offset.z
+                sandwich.position.z + rotatedAttachmentOffset.z
             );
             nextHorizontalPosition = ClampToTerrainBounds(nextHorizontalPosition, config);
 
@@ -847,19 +864,24 @@ public static partial class Module
     {
         var pitchRadians = DegreesToRadians(sandwich.pitch);
         var rollRadians = DegreesToRadians(sandwich.roll);
+        var yawRadians = DegreesToRadians(sandwich.yaw);
 
         var cosPitch = MathF.Cos(pitchRadians);
         var sinPitch = MathF.Sin(pitchRadians);
         var cosRoll = MathF.Cos(rollRadians);
         var sinRoll = MathF.Sin(rollRadians);
+        var cosYaw = MathF.Cos(yawRadians);
+        var sinYaw = MathF.Sin(yawRadians);
 
         var pitchedY = offset.y * cosPitch - offset.z * sinPitch;
         var pitchedZ = offset.y * sinPitch + offset.z * cosPitch;
 
         var rolledX = offset.x * cosRoll - pitchedY * sinRoll;
         var rolledY = offset.x * sinRoll + pitchedY * cosRoll;
+        var yawedX = rolledX * cosYaw + pitchedZ * sinYaw;
+        var yawedZ = -rolledX * sinYaw + pitchedZ * cosYaw;
 
-        return new DbVector3(rolledX, rolledY, pitchedZ);
+        return new DbVector3(yawedX, rolledY, yawedZ);
     }
 
     private static void DropAttachedTopping(
@@ -890,10 +912,11 @@ public static partial class Module
         Config config
     )
     {
+        var rotatedOffset = RotateFlat(attachmentOffset, sandwich.yaw);
         var horizontalPosition = new DbVector3(
-            sandwich.position.x + attachmentOffset.x,
+            sandwich.position.x + rotatedOffset.x,
             0f,
-            sandwich.position.z + attachmentOffset.z
+            sandwich.position.z + rotatedOffset.z
         );
         horizontalPosition = ClampToTerrainBounds(horizontalPosition, config);
         var sandwichGroundHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
@@ -903,6 +926,45 @@ public static partial class Module
     }
 
     private readonly record struct SimulatedPlayerState(Player Player, float JumpOffset, float VerticalVelocity);
+
+    private static DbVector3 RotateFlat(DbVector3 value, float degrees)
+    {
+        var radians = DegreesToRadians(degrees);
+        var cos = MathF.Cos(radians);
+        var sin = MathF.Sin(radians);
+        return new DbVector3(
+            value.x * cos + value.z * sin,
+            value.y,
+            -value.x * sin + value.z * cos
+        );
+    }
+
+    private static DbVector3 InverseRotateFlat(DbVector3 value, float degrees)
+        => RotateFlat(value, -degrees);
+
+    private static DbVector3 TangentFromOffset(DbVector3 offset)
+    {
+        var tangent = new DbVector3(-offset.z, 0f, offset.x);
+        return tangent.SafeNormalized;
+    }
+
+    private static float DotFlat(DbVector3 a, DbVector3 b)
+        => a.x * b.x + a.z * b.z;
+
+    private static float NormalizeDegrees(float degrees)
+    {
+        degrees %= 360f;
+        if (degrees > 180f)
+        {
+            degrees -= 360f;
+        }
+        else if (degrees < -180f)
+        {
+            degrees += 360f;
+        }
+
+        return degrees;
+    }
 
     private static float DegreesToRadians(float degrees) => degrees * (MathF.PI / 180f);
 

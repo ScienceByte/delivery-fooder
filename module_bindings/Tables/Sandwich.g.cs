@@ -45,6 +45,7 @@ namespace SpacetimeDB.Types
         public global::SpacetimeDB.Col<Sandwich, float> Tilt { get; }
         public global::SpacetimeDB.Col<Sandwich, float> Pitch { get; }
         public global::SpacetimeDB.Col<Sandwich, float> Roll { get; }
+        public global::SpacetimeDB.Col<Sandwich, float> Yaw { get; }
         public global::SpacetimeDB.Col<Sandwich, int> AttachedPlayerCount { get; }
         public global::SpacetimeDB.Col<Sandwich, bool> AtSummit { get; }
         public global::SpacetimeDB.Col<Sandwich, bool> Completed { get; }
@@ -58,6 +59,7 @@ namespace SpacetimeDB.Types
             Tilt = new global::SpacetimeDB.Col<Sandwich, float>(tableName, "tilt");
             Pitch = new global::SpacetimeDB.Col<Sandwich, float>(tableName, "pitch");
             Roll = new global::SpacetimeDB.Col<Sandwich, float>(tableName, "roll");
+            Yaw = new global::SpacetimeDB.Col<Sandwich, float>(tableName, "yaw");
             AttachedPlayerCount = new global::SpacetimeDB.Col<Sandwich, int>(tableName, "attached_player_count");
             AtSummit = new global::SpacetimeDB.Col<Sandwich, bool>(tableName, "at_summit");
             Completed = new global::SpacetimeDB.Col<Sandwich, bool>(tableName, "completed");

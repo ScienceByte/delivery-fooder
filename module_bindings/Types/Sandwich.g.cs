@@ -25,6 +25,8 @@ namespace SpacetimeDB.Types
         public float Pitch;
         [DataMember(Name = "roll")]
         public float Roll;
+        [DataMember(Name = "yaw")]
+        public float Yaw;
         [DataMember(Name = "attached_player_count")]
         public int AttachedPlayerCount;
         [DataMember(Name = "at_summit")]
@@ -41,6 +43,7 @@ namespace SpacetimeDB.Types
             float Tilt,
             float Pitch,
             float Roll,
+            float Yaw,
             int AttachedPlayerCount,
             bool AtSummit,
             bool Completed,
@@ -53,6 +56,7 @@ namespace SpacetimeDB.Types
             this.Tilt = Tilt;
             this.Pitch = Pitch;
             this.Roll = Roll;
+            this.Yaw = Yaw;
             this.AttachedPlayerCount = AttachedPlayerCount;
             this.AtSummit = AtSummit;
             this.Completed = Completed;

@@ -102,15 +102,27 @@ public partial class PlayerCameraController : Node3D
 
 	public Vector3 GetFlattenedForward()
 	{
-		var forward = -GlobalBasis.Z;
+		var basis = GetReferenceBasis();
+		var forward = -basis.Z;
 		forward.Y = 0f;
-		return forward.Normalized();
+		return forward.LengthSquared() > 0.0001f ? forward.Normalized() : Vector3.Forward;
 	}
 
 	public Vector3 GetFlattenedRight()
 	{
-		var right = GlobalBasis.X;
+		var basis = GetReferenceBasis();
+		var right = basis.X;
 		right.Y = 0f;
-		return right.Normalized();
+		return right.LengthSquared() > 0.0001f ? right.Normalized() : Vector3.Right;
+	}
+
+	private Basis GetReferenceBasis()
+	{
+		if (IsInstanceValid(_camera))
+		{
+			return _camera.GlobalBasis;
+		}
+
+		return GlobalBasis;
 	}
 }
