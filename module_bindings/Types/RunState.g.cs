@@ -17,14 +17,18 @@ namespace SpacetimeDB.Types
         public int Id;
         [DataMember(Name = "shuffle_seed")]
         public uint ShuffleSeed;
+        [DataMember(Name = "no_more_toppings_announced")]
+        public bool NoMoreToppingsAnnounced;
 
         public RunState(
             int Id,
-            uint ShuffleSeed
+            uint ShuffleSeed,
+            bool NoMoreToppingsAnnounced
         )
         {
             this.Id = Id;
             this.ShuffleSeed = ShuffleSeed;
+            this.NoMoreToppingsAnnounced = NoMoreToppingsAnnounced;
         }
 
         public RunState()

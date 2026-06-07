@@ -4,12 +4,12 @@ public static partial class ToppingShapeData
     public static ToppingShapeProfile GetProfile(string name)
         => name switch
         {
-            "Lettuce" => new ToppingShapeProfile("Lettuce", 4.834908f, 3.151507f, -0.533646f, 0.533646f, 162.6259f, 0.15f, 2.5f),
-            "Bacon" => new ToppingShapeProfile("Bacon", 2.650475f, 2.166309f, -0.627048f, 0.627048f, 72.00696f, 0.15f, 2.5f),
-            "Cheese" => new ToppingShapeProfile("Cheese", 2.831337f, 2.103153f, -0.1024f, 0.1024f, 12.1953f, 0.15f, 2.5f),
-            "Tomato" => new ToppingShapeProfile("Tomato", 0.900002f, 0.9f, -0.15f, 0.15f, 2.430003f, 0.15f, 2.5f),
-            "TopBread" => new ToppingShapeProfile("TopBread", 4.150002f, 1.25f, -0.625f, 0.625f, 64.84377f, 0.15f, 2.5f),
-            "BottomBread" => new ToppingShapeProfile("BottomBread", 4.150002f, 1.25f, -0.625f, 0.625f, 64.8438f, 0.15f, 2.5f),
+            "Lettuce" => new ToppingShapeProfile("Lettuce", 0.483704f, 0.383532f, -0.12373f, 0.409916f, 0.81313f, 0.15f, 2.5f),
+            "Bacon" => new ToppingShapeProfile("Bacon", 0.291777f, 0.270098f, -0.10791f, 0.142019f, 0.35f, 0.15f, 2.5f),
+            "Cheese" => new ToppingShapeProfile("Cheese", 0.374268f, 0.210315f, 0f, 0.04f, 0.35f, 0.15f, 2.5f),
+            "Tomato" => new ToppingShapeProfile("Tomato", 0.09f, 0.09f, 0f, 0.04f, 0.35f, 0.15f, 2.5f),
+            "TopBread" => new ToppingShapeProfile("TopBread", 0.415001f, 0.125f, 0f, 0.25f, 0.35f, 0.15f, 2.5f),
+            "BottomBread" => new ToppingShapeProfile("BottomBread", 0.415001f, 0.125f, 0f, 0.25f, 0.35f, 0.15f, 2.5f),
             _ => Default,
         };
 }

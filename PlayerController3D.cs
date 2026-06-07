@@ -4,6 +4,7 @@ using SpacetimeDB.Types;
 public partial class PlayerController3D : Node3D
 {
 	public const string GroupName = "Players";
+	public const float HeadSupportHeight = 1.45f;
 	private const float PositionInterpolationSpeed = 14f;
 
 	private readonly int _playerId;
@@ -14,6 +15,7 @@ public partial class PlayerController3D : Node3D
 	public string Username { get; private set; }
 	public bool IsLocalPlayer => _isLocalPlayer;
 	public Vector3 AttachmentOffset { get; private set; }
+	public Vector3 HeadSupportPoint => GlobalPosition + Vector3.Up * HeadSupportHeight;
 
 	public PlayerController3D(Player player)
 	{

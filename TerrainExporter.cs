@@ -14,6 +14,8 @@ public partial class TerrainExporter : EditorScript
 	private const string ExcludeGroupName = "terrain_ignore";
 	private const string IncludeMetaName = "terrain_export";
 	private const string ExcludeMetaName = "terrain_ignore";
+	private const string LooseItemGroupName = "loose_item_export";
+	private const string LooseItemMetaName = "loose_item_export";
 
 	public override void _Run()
 	{
@@ -345,6 +347,11 @@ public partial class TerrainExporter : EditorScript
 		private static bool ShouldUseMesh(MeshInstance3D meshNode, bool useExplicitInclude)
 		{
 			if (HasTaggedAncestor(meshNode, ExcludeGroupName, ExcludeMetaName))
+			{
+				return false;
+			}
+
+			if (HasTaggedAncestor(meshNode, LooseItemGroupName, LooseItemMetaName))
 			{
 				return false;
 			}

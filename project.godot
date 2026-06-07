@@ -23,6 +23,8 @@ project/assembly_name="food-eater"
 
 terrain_ignore=""
 terrain_export=""
+loose_item_ignore=""
+loose_item_export=""
 
 [input]
 

@@ -3,6 +3,10 @@ public partial class WorldController : Node3D
 {
 	public override void _Ready()
 	{
+		AddChild(new LooseItemRuntimeSpawner
+		{
+			Name = "LooseItemRuntimeSpawner",
+		});
 		AddLighting();
 	}
 

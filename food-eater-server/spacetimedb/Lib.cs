@@ -16,11 +16,12 @@ public static partial class Module
     private const float TickSeconds = 0.05f;
     private const int SandwichId = 0;
     private const float PitfallFloorY = -40f;
+    private static readonly DbVector3 SummitTargetPosition = new(44f, 0.3f, 0f);
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
     private const float PlayerHeadSupportHeight = 1.45f;
     private const float GroundedHeightTolerance = 0.05f;
-    private const float DefaultSandwichSpeed = 18f;
+    private const float DefaultSandwichSpeed = 14f;
     private const float DefaultGravity = 24f;
     private const float DefaultJumpImpulse = 12.75f;
     private const float MaxAirHeightBuffer = 10f;
@@ -42,8 +43,8 @@ public static partial class Module
     private const float ToppingAngularAccelerationFactor = 0.09f;
     private const float ToppingSlideBoundary = 1.1f;
     private const float ImpactSlideImpulse = 2.8f;
-    private const float ToppingMomentumRetentionPerSecond = 0.35f;
-    private const float ToppingMomentumStopSpeed = 0.08f;
+    private const float ToppingMomentumRetentionPerSecond = 0.001f;
+    private const float ToppingMomentumStopSpeed = 0.05f;
     private const float PlayerOrbitRotationSpeed = 95f;
     private const uint InitialShuffleSeed = 0xA53C9E2Du;
 
@@ -78,6 +79,7 @@ public static partial class Module
         [PrimaryKey]
         public int id;
         public uint shuffle_seed;
+        public bool no_more_toppings_announced;
     }
 
     [Table(Accessor = "config", Public = true)]
@@ -165,7 +167,7 @@ public static partial class Module
             sandwich_speed = DefaultSandwichSpeed,
             gravity = DefaultGravity,
             recovery_distance = 3f,
-            summit_distance = 0f,
+            summit_distance = 2f,
             topping_drop_tilt = 32f,
             topping_drop_impact_speed = 7f,
             jump_impulse = DefaultJumpImpulse,
@@ -182,6 +184,7 @@ public static partial class Module
         {
             id = 0,
             shuffle_seed = InitialShuffleSeed,
+            no_more_toppings_announced = false,
         });
         SeedToppings(ctx, AdvanceShuffleSeed(ctx));
 
@@ -335,6 +338,10 @@ public static partial class Module
             roll_velocity = 0f,
         });
         SeedToppings(ctx, AdvanceShuffleSeed(ctx));
+        ctx.Db.run_state.id.Update(RequireRunState(ctx) with
+        {
+            no_more_toppings_announced = false,
+        });
 
         foreach (var activePlayer in ctx.Db.player.Iter().ToList())
         {
@@ -570,16 +577,36 @@ public static partial class Module
                 ApplyImpactToAttachedToppings(ctx);
             }
 
-            sandwich.at_summit = false;
+            var hasReachedSummit = IsAtSummitTarget(sandwich, config);
+            if (hasReachedSummit && !sandwich.at_summit)
+            {
+                Emit(ctx, "summit_reached", 0, 0, "Summit reached!");
+            }
+
+            sandwich.at_summit = hasReachedSummit;
         }
 
         UpdateAttachedToppings(ctx, sandwich, sandwichMotion, config);
         UpdateDroppedToppings(ctx, config);
 
-        if (!sandwich.completed && HaveAllCarriedToppingsFallen(ctx))
+        var runState = RequireRunState(ctx);
+        if (HaveAllCarriedToppingsFallen(ctx))
         {
-            sandwich.completed = true;
-            Emit(ctx, "game_over", 0, 0, "Game over: all toppings fell off.");
+            if (!runState.no_more_toppings_announced)
+            {
+                Emit(ctx, "game_over", 0, 0, "You have no more toppings!!");
+                ctx.Db.run_state.id.Update(runState with
+                {
+                    no_more_toppings_announced = true,
+                });
+            }
+        }
+        else if (runState.no_more_toppings_announced)
+        {
+            ctx.Db.run_state.id.Update(runState with
+            {
+                no_more_toppings_announced = false,
+            });
         }
 
         ctx.Db.sandwich.id.Update(sandwich);
@@ -606,7 +633,7 @@ public static partial class Module
 
     private static Sandwich CreateInitialSandwich(Config config)
     {
-        var horizontalPosition = new DbVector3(TerrainHeightData.CenterX, 0f, TerrainHeightData.CenterZ);
+        var horizontalPosition = new DbVector3(1f, 0f, 0f);
         var bottomBread = ToppingShapeData.GetProfile("BottomBread");
         return new Sandwich
         {
@@ -1033,6 +1060,14 @@ public static partial class Module
             row.layer_order > 0 &&
             (row.state == ToppingState.Attached || row.state == ToppingState.Placed)
         );
+
+    private static bool IsAtSummitTarget(Sandwich sandwich, Config config)
+    {
+        var deltaX = sandwich.position.x - SummitTargetPosition.x;
+        var deltaZ = sandwich.position.z - SummitTargetPosition.z;
+        var horizontalDistance = MathF.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        return horizontalDistance <= MathF.Max(config.summit_distance, 0.1f);
+    }
 
     private static DbVector3 AttachmentOffset(int index)
     {
