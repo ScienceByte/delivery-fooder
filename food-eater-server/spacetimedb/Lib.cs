@@ -17,8 +17,11 @@ public static partial class Module
     private const int SandwichId = 0;
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
-    private const float StartRadiusFraction = 0.8f;
     private const float GroundedHeightTolerance = 0.05f;
+    private const float DefaultSandwichSpeed = 5f;
+    private const float DefaultGravity = 12f;
+    private const float DefaultJumpImpulse = 8.5f;
+    private const float MaxAirHeightBuffer = 10f;
 
     [Table(Accessor = "simulation_timer", Scheduled = nameof(Simulate), ScheduledAt = nameof(scheduled_at))]
     public partial struct SimulationTimer
@@ -107,13 +110,13 @@ public static partial class Module
             id = 0,
             world_radius = TerrainHeightData.WorldRadius,
             summit_height = TerrainHeightData.SummitHeight,
-            sandwich_speed = 5f,
-            gravity = 12f,
+            sandwich_speed = DefaultSandwichSpeed,
+            gravity = DefaultGravity,
             recovery_distance = 3f,
             summit_distance = 0f,
             topping_drop_tilt = 32f,
             topping_drop_impact_speed = 7f,
-            jump_impulse = 8.5f,
+            jump_impulse = DefaultJumpImpulse,
         });
 
         ctx.Db.sandwich.Insert(CreateInitialSandwich(RequireConfig(ctx)));
@@ -319,6 +322,7 @@ public static partial class Module
             sandwich.position += new DbVector3(sandwich.velocity.x, 0f, sandwich.velocity.z) * TickSeconds;
             sandwich.position = ClampToTerrainBounds(sandwich.position, config);
             var targetSandwichHeight = TerrainHeight(sandwich.position, config) + SandwichCarryHeight;
+            // Jump is shared because players are rigidly attached to one authoritative sandwich body.
             var jumpRequested = players.Any(player => player.jump_queued);
 
             if (jumpRequested && wasGrounded)
@@ -522,7 +526,7 @@ public static partial class Module
         position.x = Math.Clamp(position.x, TerrainHeightData.MinX, TerrainHeightData.MaxX);
         position.z = Math.Clamp(position.z, TerrainHeightData.MinZ, TerrainHeightData.MaxZ);
 
-        position.y = Math.Clamp(position.y, 0f, config.summit_height + SandwichCarryHeight + 10f);
+        position.y = Math.Clamp(position.y, 0f, config.summit_height + SandwichCarryHeight + MaxAirHeightBuffer);
         return position;
     }
 

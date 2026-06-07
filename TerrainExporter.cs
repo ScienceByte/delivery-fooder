@@ -20,21 +20,22 @@ public partial class TerrainExporter : EditorScript
 			return;
 		}
 
-		var terrainNode = sceneRoot.FindChild(TerrainNodeName, true, false) as MeshInstance3D;
-		if (terrainNode == null)
+		var terrainRoot = sceneRoot.FindChild(TerrainNodeName, true, false) as Node3D;
+		if (terrainRoot == null)
 		{
-			GD.PushError($"Could not find a MeshInstance3D named '{TerrainNodeName}' in the edited scene.");
+			GD.PushError($"Could not find a Node3D named '{TerrainNodeName}' in the edited scene.");
 			return;
 		}
 
-		if (terrainNode.Mesh == null)
+		var terrainGeometry = TerrainGeometry.FromRoot(terrainRoot);
+		if (terrainGeometry.MeshCount == 0)
 		{
-			GD.PushError($"'{TerrainNodeName}' does not have a mesh.");
+			GD.PushError($"'{TerrainNodeName}' does not contain any MeshInstance3D nodes with meshes.");
 			return;
 		}
 
-		var sampleBounds = DetermineSampleBounds(terrainNode);
-		var heights = SampleTerrain(terrainNode, sampleBounds, OutputResolution);
+		var sampleBounds = terrainGeometry.Bounds;
+		var heights = SampleTerrain(terrainGeometry, sampleBounds, OutputResolution);
 		var output = BuildGeneratedFile(sampleBounds, heights, OutputResolution);
 
 		var absolutePath = ProjectSettings.GlobalizePath(OutputPath);
@@ -43,18 +44,8 @@ public partial class TerrainExporter : EditorScript
 		GD.Print($"Terrain data exported to {OutputPath}");
 	}
 
-	private static Aabb DetermineSampleBounds(MeshInstance3D terrainNode)
+	private static float[] SampleTerrain(TerrainGeometry terrainGeometry, Aabb bounds, int resolution)
 	{
-		var aabb = terrainNode.GlobalTransform * terrainNode.Mesh.GetAabb();
-		return new Aabb(
-			new Vector3(aabb.Position.X, aabb.Position.Y, aabb.Position.Z),
-			new Vector3(aabb.Size.X, aabb.Size.Y, aabb.Size.Z)
-		);
-	}
-
-	private static float[] SampleTerrain(MeshInstance3D terrainNode, Aabb bounds, int resolution)
-	{
-		var triangles = MeshTriangles.FromMesh(terrainNode);
 		var heights = new float[resolution * resolution];
 		var stepX = bounds.Size.X / (resolution - 1);
 		var stepZ = bounds.Size.Z / (resolution - 1);
@@ -65,7 +56,7 @@ public partial class TerrainExporter : EditorScript
 			{
 				var worldX = bounds.Position.X + x * stepX;
 				var worldZ = bounds.Position.Z + z * stepZ;
-				heights[z * resolution + x] = triangles.SampleHeight(worldX, worldZ);
+				heights[z * resolution + x] = terrainGeometry.SampleHeight(worldX, worldZ);
 			}
 		}
 
@@ -153,52 +144,114 @@ public partial class TerrainExporter : EditorScript
 		}
 	}
 
-	private sealed class MeshTriangles
+	private sealed class TerrainGeometry
 	{
+		public Aabb Bounds { get; }
+		public int MeshCount { get; }
 		private readonly Triangle[] _triangles;
 
-		private MeshTriangles(Triangle[] triangles)
+		private TerrainGeometry(Triangle[] triangles, Aabb bounds, int meshCount)
 		{
 			_triangles = triangles;
+			Bounds = bounds;
+			MeshCount = meshCount;
 		}
 
-		public static MeshTriangles FromMesh(MeshInstance3D terrainNode)
+		public static TerrainGeometry FromRoot(Node3D terrainRoot)
 		{
 			var triangleList = new System.Collections.Generic.List<Triangle>();
-			var mesh = terrainNode.Mesh;
-			var transform = terrainNode.GlobalTransform;
+			var meshNodes = new System.Collections.Generic.List<MeshInstance3D>();
+			CollectMeshNodes(terrainRoot, meshNodes);
+			var meshCount = 0;
+			var hasBounds = false;
+			var min = Vector3.Zero;
+			var max = Vector3.Zero;
 
-			for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
+			foreach (var meshNode in meshNodes)
 			{
-				var arrays = mesh.SurfaceGetArrays(surface);
-				var vertices = (Vector3[])arrays[(int)Mesh.ArrayType.Vertex];
-				var indices = (int[])arrays[(int)Mesh.ArrayType.Index];
-
-				if (indices.Length > 0)
+				var mesh = meshNode.Mesh;
+				if (mesh == null)
 				{
-					for (var i = 0; i < indices.Length; i += 3)
-					{
-						triangleList.Add(new Triangle(
-							transform * vertices[indices[i]],
-							transform * vertices[indices[i + 1]],
-							transform * vertices[indices[i + 2]]
-						));
-					}
+					continue;
+				}
+
+				meshCount++;
+				var transform = meshNode.GlobalTransform;
+				var worldAabb = transform * mesh.GetAabb();
+				var worldMin = worldAabb.Position;
+				var worldMax = worldAabb.End;
+
+				if (!hasBounds)
+				{
+					min = worldMin;
+					max = worldMax;
+					hasBounds = true;
 				}
 				else
 				{
-					for (var i = 0; i < vertices.Length; i += 3)
+					min = new Vector3(
+						MathF.Min(min.X, worldMin.X),
+						MathF.Min(min.Y, worldMin.Y),
+						MathF.Min(min.Z, worldMin.Z)
+					);
+					max = new Vector3(
+						MathF.Max(max.X, worldMax.X),
+						MathF.Max(max.Y, worldMax.Y),
+						MathF.Max(max.Z, worldMax.Z)
+					);
+				}
+
+				for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
+				{
+					var arrays = mesh.SurfaceGetArrays(surface);
+					var vertices = (Vector3[])arrays[(int)Mesh.ArrayType.Vertex];
+					var indices = (int[])arrays[(int)Mesh.ArrayType.Index];
+
+					if (indices.Length > 0)
 					{
-						triangleList.Add(new Triangle(
-							transform * vertices[i],
-							transform * vertices[i + 1],
-							transform * vertices[i + 2]
-						));
+						for (var i = 0; i < indices.Length; i += 3)
+						{
+							triangleList.Add(new Triangle(
+								transform * vertices[indices[i]],
+								transform * vertices[indices[i + 1]],
+								transform * vertices[indices[i + 2]]
+							));
+						}
+					}
+					else
+					{
+						for (var i = 0; i < vertices.Length; i += 3)
+						{
+							triangleList.Add(new Triangle(
+								transform * vertices[i],
+								transform * vertices[i + 1],
+								transform * vertices[i + 2]
+							));
+						}
 					}
 				}
 			}
 
-			return new MeshTriangles(triangleList.ToArray());
+			var bounds = hasBounds
+				? new Aabb(min, max - min)
+				: new Aabb(Vector3.Zero, Vector3.Zero);
+			return new TerrainGeometry(triangleList.ToArray(), bounds, meshCount);
+		}
+
+		private static void CollectMeshNodes(Node node, System.Collections.Generic.List<MeshInstance3D> meshNodes)
+		{
+			if (node is MeshInstance3D meshNode)
+			{
+				meshNodes.Add(meshNode);
+			}
+
+			foreach (var child in node.GetChildren())
+			{
+				if (child is Node childNode)
+				{
+					CollectMeshNodes(childNode, meshNodes);
+				}
+			}
 		}
 
 		public float SampleHeight(float x, float z)
