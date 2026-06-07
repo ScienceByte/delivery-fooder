@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://bh4dbc15e5taq" path="res://GameEventController.cs" id="5_events"]
 [ext_resource type="Texture2D" uid="uid://g1iuo0hc14h4" path="res://assets/OBJ format/Textures/colormap.png" id="6_7mycd"]
 [ext_resource type="ArrayMesh" uid="uid://0kxk3ny3hkco" path="res://assets/OBJ format/road-crossing.obj" id="7_272bh"]
+[ext_resource type="PackedScene" uid="uid://3nxnlmfb1a06" path="res://SkyCrapers.FBX" id="8_5vw27"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_t7iqt"]
 resource_name = "colormap"
@@ -124,6 +125,25 @@ _surfaces = [{
 blend_shape_mode = 0
 shadow_mesh = SubResource("ArrayMesh_v7hxf")
 
+[sub_resource type="Gradient" id="Gradient_kek77"]
+offsets = PackedFloat32Array(0, 0.30346823, 0.69075143, 1)
+colors = PackedColorArray(0, 0, 0, 1, 0.3034682, 0.3034682, 0.3034682, 1, 0.3554913, 0.3554913, 0.3554913, 1, 1, 1, 1, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_4c57u"]
+domain_warp_enabled = true
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_efxa6"]
+noise = SubResource("FastNoiseLite_4c57u")
+color_ramp = SubResource("Gradient_kek77")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dg77c"]
+albedo_color = Color(0.90467024, 0, 0.051139437, 1)
+albedo_texture = SubResource("NoiseTexture2D_efxa6")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ycdy4"]
+material = SubResource("StandardMaterial3D_dg77c")
+size = Vector2(50, 50)
+
 [node name="Main" type="Node" unique_id=1138706690]
 script = ExtResource("1_session")
 
@@ -141,22 +161,213 @@ script = ExtResource("5_events")
 
 [node name="Node3D" type="Node3D" parent="." unique_id=1200440450]
 
-[node name="TerrainSource" type="MeshInstance3D" parent="." unique_id=198026916]
+[node name="TerrainSourceCityJump" type="MeshInstance3D" parent="." unique_id=198026916]
 transform = Transform3D(15, 0, 0, 0, 15, 0, 0, 0, 15, 0, 0, 0)
 mesh = SubResource("ArrayMesh_272bh")
 
-[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSource" unique_id=803695185]
+[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSourceCityJump" unique_id=803695185]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.96603596, 0, 0.0032913685)
 mesh = ExtResource("7_272bh")
 
-[node name="RoadCrossing2" type="MeshInstance3D" parent="TerrainSource" unique_id=1044787284]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.9675395, -0.013261795, -0.008936644)
-mesh = ExtResource("7_272bh")
-
-[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSource" unique_id=2008435347]
+[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSourceCityJump" unique_id=2008435347]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.9584286, 0, -0.0007710457)
 mesh = ExtResource("7_272bh")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="TerrainSource" unique_id=938487278]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.9498813, 0, 0)
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TerrainSourceCityJump" unique_id=938487278]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.24999997, 0, 0, 0, 0.9999999, 2.9498808, 0.014068126, 0)
 mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="TerrainSourceCityJump" unique_id=1751118421]
+transform = Transform3D(0.9999997, 0, 0, 0, 0.49999985, 0, 0, 0, 0.9999997, 3.9438667, 0.13296959, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D3" type="MeshInstance3D" parent="TerrainSourceCityJump" unique_id=1627915436]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, 4.9421725, 0.3713965, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="Node3D" type="Node3D" parent="TerrainSourceCityJump" unique_id=377028330]
+transform = Transform3D(-0.9999999, 0, -8.742276e-08, 0, 0.9999999, 0, 8.742276e-08, 0, -0.9999999, 11.248305, 0, 0)
+
+[node name="RoadCrossing2" type="MeshInstance3D" parent="TerrainSourceCityJump/Node3D" unique_id=1034815498]
+transform = Transform3D(0.99999994, 0, 0, 0, 0.99999994, 0, 0, 0, 0.99999994, 0.9660359, 0, 0.0032913683)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing4" type="MeshInstance3D" parent="TerrainSourceCityJump/Node3D" unique_id=225844321]
+transform = Transform3D(0.99999994, 0, 0, 0, 0.99999994, 0, 0, 0, 0.99999994, 1.9584285, 0, -0.0007710456)
+mesh = ExtResource("7_272bh")
+
+[node name="MeshInstance3D4" type="MeshInstance3D" parent="TerrainSourceCityJump/Node3D" unique_id=338862666]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.24999996, 0, 0, 0, 0.9999998, 2.9498806, 0.014068125, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D5" type="MeshInstance3D" parent="TerrainSourceCityJump/Node3D" unique_id=1396290318]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.49999982, 0, 0, 0, 0.99999964, 3.9438665, 0.13296957, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D6" type="MeshInstance3D" parent="TerrainSourceCityJump/Node3D" unique_id=559713954]
+transform = Transform3D(0.9999996, 0, 0, 0, 0.9999996, 0, 0, 0, 0.9999996, 4.9421725, 0.37139648, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="SkyCrapers" parent="TerrainSourceCityJump" unique_id=134857818 instance=ExtResource("8_5vw27")]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 14.489693, -2.1958547, -6.3846846)
+
+[node name="SkyCrapers2" parent="TerrainSourceCityJump" unique_id=772699283 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883833, 0, -0.9820078, 0, 0.99999964, 0, 0.9820078, 0, -0.18883833, 14.489693, -2.1958547, 10.259742)
+
+[node name="SkyCrapers3" parent="TerrainSourceCityJump" unique_id=1182403496 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883833, 0, -0.98200774, 0, 0.9999996, 0, 0.98200774, 0, -0.18883833, -5.088002, -2.1958547, 10.259742)
+
+[node name="SkyCrapers4" parent="TerrainSourceCityJump" unique_id=1858036692 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.18883833, 0, -0.9820077, 0, 0.9999995, 0, 0.9820077, 0, -0.18883833, -5.0880017, -2.1958547, -6.9999804)
+
+[node name="SkyCrapers4" parent="TerrainSourceCityJump/SkyCrapers4" unique_id=313814724 instance=ExtResource("8_5vw27")]
+transform = Transform3D(-0.9364455, 0, -0.35081202, 0, 0.9999995, 0, 0.35081202, 0, -0.9364455, 0.10742712, -1.9992521, -7.999053)
+
+[node name="TerrainSourceHighwayToHell" type="MeshInstance3D" parent="." unique_id=637386555]
+transform = Transform3D(15, 0, 0, 0, 15, 0, 0, 0, 15, 0, 0, 0)
+visible = false
+mesh = SubResource("ArrayMesh_272bh")
+
+[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1579538516]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.96603596, 0, 0.0032913685)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing" unique_id=1442498300]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 3.972412, 0, 0.0032913683)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing" unique_id=2065144380]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 4.964803, 0, -0.0007710457)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=4879210]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.9584286, 0, -0.0007710457)
+mesh = ExtResource("7_272bh")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1460711131]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.24999997, 0, 0, 0, 0.9999999, 2.9498808, 0.014068126, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1873966582]
+transform = Transform3D(-0.99999976, 0, -8.7422755e-08, 0, 0.24999994, 0, 8.7422755e-08, 0, -0.99999976, 3.9478443, 0.014068124, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="RoadCrossing5" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1321552043]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 12.840515, 0, 0.0032913678)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing5" unique_id=436007140]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 3.972412, 0, 0.0032913683)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing5" unique_id=1215091684]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 4.964803, 0, -0.0007710457)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing6" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1008502734]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 13.832909, 0, -0.0007710455)
+mesh = ExtResource("7_272bh")
+
+[node name="MeshInstance3D5" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1252622119]
+transform = Transform3D(0.9999997, 0, 0, 0, 0.24999993, 0, 0, 0, 0.9999997, 14.82436, 0.014068123, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D6" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=2001374606]
+transform = Transform3D(-0.9999996, 0, -8.7422734e-08, 0, 0.2499999, 0, 8.7422734e-08, 0, -0.9999996, 15.822324, 0.014068121, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="RoadCrossing2" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1500923271]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 6.8853464, 0, 0.003291368)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing2" unique_id=497975721]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 3.972412, 0, 0.0032913683)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell/RoadCrossing2" unique_id=164909953]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 4.964803, 0, -0.0007710457)
+mesh = ExtResource("7_272bh")
+
+[node name="RoadCrossing4" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1954890508]
+transform = Transform3D(0.9999999, 0, 0, 0, 0.9999999, 0, 0, 0, 0.9999999, 7.877739, 0, -0.00077104557)
+mesh = ExtResource("7_272bh")
+
+[node name="MeshInstance3D3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=2021469834]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.24999994, 0, 0, 0, 0.99999976, 8.869191, 0.014068124, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="MeshInstance3D4" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=768115789]
+transform = Transform3D(-0.99999964, 0, -8.742274e-08, 0, 0.24999991, 0, 8.742274e-08, 0, -0.99999964, 9.867155, 0.014068122, 0)
+mesh = SubResource("ArrayMesh_5vw27")
+
+[node name="plane" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=471909582]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 3.416452, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane2" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1607448107]
+transform = Transform3D(0.9999997, 0, 0, 0, 0.9999997, 0, 0, 0, 0.9999997, 52.75826, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane3" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=684968117]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 3.416452, -3.1997044, -50.12619)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane4" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1647276617]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, 52.75826, -3.1997044, -50.12619)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane5" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1633658835]
+transform = Transform3D(0.9999997, 0, 0, 0, 0.9999997, 0, 0, 0, 0.9999997, 3.416452, -3.1997044, 48.701958)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane6" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=851747962]
+transform = Transform3D(0.9999996, 0, 0, 0, 0.9999996, 0, 0, 0, 0.9999996, 52.75826, -3.1997044, 48.701958)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane7" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1571266609]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, -94.765335, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane8" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1759543930]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, -45.42353, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane9" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1683327633]
+transform = Transform3D(0.9999997, 0, 0, 0, 0.9999997, 0, 0, 0, 0.9999997, -94.765335, -3.1997044, -50.126186)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane10" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=34330584]
+transform = Transform3D(0.9999996, 0, 0, 0, 0.9999996, 0, 0, 0, 0.9999996, -45.42353, -3.1997044, -50.126186)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane11" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=704237879]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, -94.765335, -3.1997044, 48.701954)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane12" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=247083480]
+transform = Transform3D(0.9999995, 0, 0, 0, 0.9999995, 0, 0, 0, 0.9999995, -45.42353, -3.1997044, 48.701954)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane13" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1280564587]
+transform = Transform3D(0.99999964, 0, 0, 0, 0.99999964, 0, 0, 0, 0.99999964, 102.40637, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane14" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=188579687]
+transform = Transform3D(0.9999995, 0, 0, 0, 0.9999995, 0, 0, 0, 0.9999995, 151.74817, -3.1997044, 0)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane15" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=352201694]
+transform = Transform3D(0.9999996, 0, 0, 0, 0.9999996, 0, 0, 0, 0.9999996, 102.40637, -3.1997044, -50.126186)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane16" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1442983170]
+transform = Transform3D(0.9999994, 0, 0, 0, 0.9999994, 0, 0, 0, 0.9999994, 151.74817, -3.1997044, -50.126186)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane17" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1956683883]
+transform = Transform3D(0.9999995, 0, 0, 0, 0.9999995, 0, 0, 0, 0.9999995, 102.40637, -3.1997044, 48.701946)
+mesh = SubResource("PlaneMesh_ycdy4")
+
+[node name="plane18" type="MeshInstance3D" parent="TerrainSourceHighwayToHell" unique_id=1075857681]
+transform = Transform3D(0.99999934, 0, 0, 0, 0.99999934, 0, 0, 0, 0.99999934, 151.74817, -3.1997044, 48.701946)
+mesh = SubResource("PlaneMesh_ycdy4")
