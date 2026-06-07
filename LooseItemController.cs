@@ -56,11 +56,25 @@ public partial class LooseItemController : Node3D
 
 	private void AddCollisionBody()
 	{
+		var halfWidth = _definition.HalfWidth;
+		var halfDepth = _definition.HalfDepth;
+		var minY = _definition.MinY;
+		var maxY = _definition.MaxY;
+
+		if (TryGetManualCollider(_definition.Name, out var manualHalfWidth, out var manualHalfDepth, out var manualMinY, out var manualMaxY))
+		{
+			halfWidth = manualHalfWidth;
+			halfDepth = manualHalfDepth;
+			minY = manualMinY;
+			maxY = manualMaxY;
+		}
+
 		var size = new Vector3(
-			Mathf.Max(0.1f, _definition.HalfWidth * 2f),
-			Mathf.Max(0.1f, _definition.Thickness),
-			Mathf.Max(0.1f, _definition.HalfDepth * 2f)
+			Mathf.Max(0.1f, halfWidth * 2f),
+			Mathf.Max(0.1f, maxY - minY),
+			Mathf.Max(0.1f, halfDepth * 2f)
 		);
+		var centerY = (minY + maxY) * 0.5f;
 
 		_collisionBody = new StaticBody3D
 		{
@@ -73,9 +87,55 @@ public partial class LooseItemController : Node3D
 			{
 				Size = size,
 			},
-			Position = new Vector3(0f, (_definition.MinY + _definition.MaxY) * 0.5f, 0f),
+			Position = new Vector3(0f, centerY, 0f),
 		});
 		AddChild(_collisionBody);
+	}
+
+	private static bool TryGetManualCollider(
+		string itemName,
+		out float halfWidth,
+		out float halfDepth,
+		out float minY,
+		out float maxY
+	)
+	{
+		switch (itemName)
+		{
+			case "Firetruck":
+				halfWidth = 1.05f;
+				halfDepth = 1.95f;
+				minY = -0.05f;
+				maxY = 1.85f;
+				return true;
+			case "GarbageTruck":
+				halfWidth = 1.05f;
+				halfDepth = 2.05f;
+				minY = -0.05f;
+				maxY = 1.8f;
+				return true;
+			case "RaceFuture":
+			case "RaceFuture2":
+				halfWidth = 0.9f;
+				halfDepth = 1.55f;
+				minY = -0.05f;
+				maxY = 1.0f;
+				return true;
+			case "WheelDefault":
+			case "WheelDefault2":
+			case "WheelDefault3":
+				halfWidth = 0.42f;
+				halfDepth = 0.42f;
+				minY = -0.35f;
+				maxY = 0.35f;
+				return true;
+			default:
+				halfWidth = 0f;
+				halfDepth = 0f;
+				minY = 0f;
+				maxY = 0f;
+				return false;
+		}
 	}
 
 	private static void SetVisualsVisible(Node node, bool visible)
