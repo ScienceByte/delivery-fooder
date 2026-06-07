@@ -18,6 +18,8 @@ public static partial class Module
     private const float PitfallFloorY = -40f;
     private static readonly DbVector3 StartTargetPosition = new(151.7f, 0f, 0f);
     private static readonly DbVector3 SummitTargetPosition = new(1f, 0f, 0f);
+    private const float PlayerCollisionRadius = 0.45f;
+    private const float PlayerCollisionHeight = 1.8f;
     private const float PlayerCarryRadius = 2.25f;
     private const float SandwichCarryHeight = 2.6f;
     private const float PlayerHeadSupportHeight = 1.45f;
@@ -861,6 +863,11 @@ public static partial class Module
 
             verticalVelocity -= config.gravity * TickSeconds;
             var nextY = player.position.y + verticalVelocity * TickSeconds;
+            nextHorizontalPosition = ResolveLooseObstacleMotion(
+                new DbVector3(player.position.x, 0f, player.position.z),
+                nextHorizontalPosition,
+                nextY
+            );
             var hasNextGround = TryTerrainHeight(nextHorizontalPosition, out var nextGroundHeight);
             if (hasNextGround && nextY <= nextGroundHeight)
             {
@@ -942,7 +949,12 @@ public static partial class Module
 
             var nextY = state.Player.position.y;
             var verticalVelocity = state.VerticalVelocity;
-            var hasGround = TryTerrainHeight(constrainedHorizontalPosition, out var groundHeight);
+            var resolvedHorizontalPosition = ResolveLooseObstacleMotion(
+                new DbVector3(state.Player.position.x, 0f, state.Player.position.z),
+                constrainedHorizontalPosition,
+                nextY
+            );
+            var hasGround = TryTerrainHeight(resolvedHorizontalPosition, out var groundHeight);
             if (hasGround && nextY <= groundHeight)
             {
                 nextY = groundHeight;
@@ -951,15 +963,20 @@ public static partial class Module
 
             nextY = MathF.Max(PitfallFloorY, nextY);
             var jumpOffset = hasGround ? MathF.Max(0f, nextY - groundHeight) : 0f;
+            var resolvedSupportOffset = new DbVector3(
+                resolvedHorizontalPosition.x - provisionalCenter.x,
+                0f,
+                resolvedHorizontalPosition.z - provisionalCenter.z
+            );
             var updatedAttachmentOffset = NormalizeAttachmentOffset(
-                InverseRotateFlat(supportOffset, sandwich.yaw)
+                InverseRotateFlat(resolvedSupportOffset, sandwich.yaw)
             );
             var updatedPlayer = state.Player with
             {
                 position = new DbVector3(
-                    constrainedHorizontalPosition.x,
+                    resolvedHorizontalPosition.x,
                     nextY,
-                    constrainedHorizontalPosition.z
+                    resolvedHorizontalPosition.z
                 ),
                 attachment_offset = updatedAttachmentOffset,
             };
@@ -1177,6 +1194,75 @@ public static partial class Module
 
     private static bool TryTerrainHeight(DbVector3 position, out float height)
         => TerrainHeightData.TrySampleHeight(position.x, position.z, out height);
+
+    private static DbVector3 ResolveLooseObstacleMotion(
+        DbVector3 currentHorizontalPosition,
+        DbVector3 desiredHorizontalPosition,
+        float bodyBaseY
+    )
+    {
+        desiredHorizontalPosition.y = 0f;
+        currentHorizontalPosition.y = 0f;
+
+        if (!IntersectsLooseObstacle(desiredHorizontalPosition, bodyBaseY))
+        {
+            return desiredHorizontalPosition;
+        }
+
+        var xOnlyPosition = new DbVector3(desiredHorizontalPosition.x, 0f, currentHorizontalPosition.z);
+        if (!IntersectsLooseObstacle(xOnlyPosition, bodyBaseY))
+        {
+            return xOnlyPosition;
+        }
+
+        var zOnlyPosition = new DbVector3(currentHorizontalPosition.x, 0f, desiredHorizontalPosition.z);
+        if (!IntersectsLooseObstacle(zOnlyPosition, bodyBaseY))
+        {
+            return zOnlyPosition;
+        }
+
+        return currentHorizontalPosition;
+    }
+
+    private static bool IntersectsLooseObstacle(DbVector3 horizontalPosition, float bodyBaseY)
+    {
+        var bodyTopY = bodyBaseY + PlayerCollisionHeight;
+        foreach (var item in LooseItemData.Items)
+        {
+            var scaleY = MathF.Abs(item.ScaleY);
+            var obstacleMinY = item.PositionY + item.MinY * scaleY;
+            var obstacleMaxY = item.PositionY + item.MaxY * scaleY;
+            if (bodyTopY < obstacleMinY || bodyBaseY > obstacleMaxY)
+            {
+                continue;
+            }
+
+            if (IntersectsLooseObstacleFootprint(horizontalPosition, item))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IntersectsLooseObstacleFootprint(DbVector3 horizontalPosition, LooseItemDefinition item)
+    {
+        var scaleX = MathF.Abs(item.ScaleX);
+        var scaleZ = MathF.Abs(item.ScaleZ);
+        var halfWidth = item.HalfWidth * scaleX + PlayerCollisionRadius;
+        var halfDepth = item.HalfDepth * scaleZ + PlayerCollisionRadius;
+
+        var deltaX = horizontalPosition.x - item.PositionX;
+        var deltaZ = horizontalPosition.z - item.PositionZ;
+        var yawRadians = DegreesToRadians(item.RotationY);
+        var cos = MathF.Cos(yawRadians);
+        var sin = MathF.Sin(yawRadians);
+        var localX = deltaX * cos - deltaZ * sin;
+        var localZ = deltaX * sin + deltaZ * cos;
+
+        return MathF.Abs(localX) <= halfWidth && MathF.Abs(localZ) <= halfDepth;
+    }
 
     private static DbVector3 LocalSlideAcceleration(
         Sandwich sandwich,
